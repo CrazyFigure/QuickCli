@@ -1,7 +1,4 @@
-#define MyAppName "QuickCli"
-#define MyAppVersion "2.0.0"
-#define MyAppPublisher "CrazyFigure"
-#define MyAppExeName "QuickCli.exe"
+#include "AppMetadata.iss.inc"
 
 [Setup]
 AppId={{8C5D4687-6F0A-4D2A-956B-70A0C0874A1B}
@@ -16,7 +13,7 @@ SolidCompression=yes
 WizardStyle=modern
 SetupIconFile=icon.ico
 OutputDir=output
-OutputBaseFilename=QuickCli-Setup
+OutputBaseFilename={#MySetupBaseFilename}
 PrivilegesRequired=lowest
 DisableProgramGroupPage=yes
 
@@ -27,7 +24,7 @@ Name: "chinesesimp"; MessagesFile: "compiler:Default.isl"
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "附加任务:"
 
 [Files]
-Source: "dist\QuickCli.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

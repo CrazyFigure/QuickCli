@@ -99,6 +99,16 @@ settings.json
 
 这样可以避免安装到 `Program Files` 后因为目录不可写导致设置保存失败。
 
+## 应用元数据
+
+应用版本、发布者、稳定的 Windows `AppUserModelID`、可执行文件名等构建元数据统一维护在：
+
+```text
+app_metadata.json
+```
+
+如果后续需要升级版本，优先只改这一个文件。
+
 ## 打包 Windows 可执行文件
 
 本项目可以直接打包为 Windows 单文件 `exe`，不需要 Visual Studio。

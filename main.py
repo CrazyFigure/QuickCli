@@ -13,6 +13,47 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+METADATA_FILE = "app_metadata.json"
+
+
+def get_bootstrap_dir() -> Path:
+    """获取启动阶段可访问的资源目录"""
+    meipass = getattr(sys, "_MEIPASS", "")
+    if meipass:
+        return Path(meipass)
+    return Path(__file__).parent.resolve()
+
+
+def load_app_metadata() -> dict:
+    """加载应用元数据，未命中时回退到默认值"""
+    defaults = {
+        "app_name": "QuickCli",
+        "version": "0.0.0",
+        "publisher": "CrazyFigure",
+        "app_user_model_id": "CrazyFigure.QuickCli",
+        "exe_name": "QuickCli.exe",
+        "setup_base_name": "QuickCli-Setup",
+        "preset_commands": ["claude", "codex", "iflow"]
+    }
+
+    metadata_path = get_bootstrap_dir() / METADATA_FILE
+    if not metadata_path.exists():
+        return defaults
+
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+    except Exception as e:
+        print(f"加载应用元数据失败: {e}")
+        return defaults
+
+    merged = defaults.copy()
+    merged.update(loaded if isinstance(loaded, dict) else {})
+    return merged
+
+
+APP_METADATA = load_app_metadata()
+
 # 设置 DPI 感知，确保在高 DPI 显示器上清晰
 import ctypes
 try:
@@ -22,7 +63,7 @@ except Exception:
 
 # 设置 AppUserModelID 以便正确显示任务栏图标和名称
 try:
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("QuickCli.1.0")
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_METADATA["app_user_model_id"])
 except Exception:
     pass
 
@@ -31,10 +72,10 @@ import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 
 # 应用信息
-APP_NAME = "QuickCli"
-APP_VERSION = "2.0.0"
-APP_ID = "QuickCli.2.0"
-PRESET_COMMANDS = ["claude", "codex", "iflow"]
+APP_NAME = APP_METADATA["app_name"]
+APP_VERSION = APP_METADATA["version"]
+APP_ID = APP_METADATA["app_user_model_id"]
+PRESET_COMMANDS = list(APP_METADATA.get("preset_commands", ["claude", "codex", "iflow"]))
 
 # 默认配置
 DEFAULT_CONFIG = {
@@ -54,11 +95,7 @@ def get_app_dir() -> Path:
 
 def get_resource_dir() -> Path:
     """获取资源文件目录"""
-    if getattr(sys, "frozen", False):
-        meipass = getattr(sys, "_MEIPASS", "")
-        if meipass:
-            return Path(meipass)
-    return Path(__file__).parent.resolve()
+    return get_bootstrap_dir()
 
 
 def get_config_file(app_dir: Path) -> Path:

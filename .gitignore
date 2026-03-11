@@ -25,6 +25,7 @@ __pycache__/
 /output/
 /installer/dist/
 /installer/output/
+/installer/AppMetadata.iss.inc
 /installer/icon.ico
 
 # Virtual environments

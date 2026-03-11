@@ -1,0 +1,13 @@
+{
+  "app_name": "QuickCli",
+  "version": "2.0.0",
+  "publisher": "CrazyFigure",
+  "app_user_model_id": "CrazyFigure.QuickCli",
+  "exe_name": "QuickCli.exe",
+  "setup_base_name": "QuickCli-Setup",
+  "preset_commands": [
+    "claude",
+    "codex",
+    "iflow"
+  ]
+}

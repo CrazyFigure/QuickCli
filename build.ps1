@@ -3,6 +3,13 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$metadata = Get-Content (Join-Path $PSScriptRoot "app_metadata.json") -Raw | ConvertFrom-Json
+$appName = $metadata.app_name
+$appVersion = $metadata.version
+$appPublisher = $metadata.publisher
+$exeName = $metadata.exe_name
+$setupBaseName = $metadata.setup_base_name
+$installerMetadataFile = Join-Path $PSScriptRoot "installer\\AppMetadata.iss.inc"
 
 $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
 if (-not $pythonCmd) {
@@ -11,6 +18,14 @@ if (-not $pythonCmd) {
 if (-not $pythonCmd) {
     throw "未找到 Python，请先安装 Python 并确保 python 或 py 命令可用。"
 }
+
+@"
+#define MyAppName "$appName"
+#define MyAppVersion "$appVersion"
+#define MyAppPublisher "$appPublisher"
+#define MyAppExeName "$exeName"
+#define MySetupBaseFilename "$setupBaseName"
+"@ | Set-Content $installerMetadataFile -Encoding UTF8
 
 & $pythonCmd.Source -m pip install --upgrade pip
 & $pythonCmd.Source -m pip install pyinstaller
@@ -27,7 +42,7 @@ if ($Installer) {
     $rootOutputDir = Join-Path $PSScriptRoot "output"
     New-Item -ItemType Directory -Force -Path $installerDistDir | Out-Null
     New-Item -ItemType Directory -Force -Path $rootOutputDir | Out-Null
-    Copy-Item .\dist\QuickCli.exe (Join-Path $installerDistDir "QuickCli.exe") -Force
+    Copy-Item (Join-Path $PSScriptRoot "dist\\$exeName") (Join-Path $installerDistDir $exeName) -Force
     Copy-Item .\icon.ico (Join-Path $installerDir "icon.ico") -Force
 
     Push-Location $installerDir
@@ -38,5 +53,5 @@ if ($Installer) {
         Pop-Location
     }
 
-    Copy-Item .\installer\output\QuickCli-Setup.exe .\output\QuickCli-Setup.exe -Force
+    Copy-Item (Join-Path $installerDir "output\\$setupBaseName.exe") (Join-Path $rootOutputDir "$setupBaseName.exe") -Force
 }
