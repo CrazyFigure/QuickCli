@@ -13,6 +13,47 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+METADATA_FILE = "app_metadata.json"
+
+
+def get_bootstrap_dir() -> Path:
+    """获取启动阶段可访问的资源目录"""
+    meipass = getattr(sys, "_MEIPASS", "")
+    if meipass:
+        return Path(meipass)
+    return Path(__file__).parent.resolve()
+
+
+def load_app_metadata() -> dict:
+    """加载应用元数据，未命中时回退到默认值"""
+    defaults = {
+        "app_name": "QuickCli",
+        "version": "0.0.0",
+        "publisher": "CrazyFigure",
+        "app_user_model_id": "CrazyFigure.QuickCli",
+        "exe_name": "QuickCli.exe",
+        "setup_base_name": "QuickCli-Setup",
+        "preset_commands": ["claude", "codex", "iflow"]
+    }
+
+    metadata_path = get_bootstrap_dir() / METADATA_FILE
+    if not metadata_path.exists():
+        return defaults
+
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            loaded = json.load(f)
+    except Exception as e:
+        print(f"加载应用元数据失败: {e}")
+        return defaults
+
+    merged = defaults.copy()
+    merged.update(loaded if isinstance(loaded, dict) else {})
+    return merged
+
+
+APP_METADATA = load_app_metadata()
+
 # 设置 DPI 感知，确保在高 DPI 显示器上清晰
 import ctypes
 try:
@@ -22,19 +63,26 @@ except Exception:
 
 # 设置 AppUserModelID 以便正确显示任务栏图标和名称
 try:
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("QuickCli.1.0")
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_METADATA["app_user_model_id"])
 except Exception:
     pass
+
+WM_SETICON = 0x0080
+ICON_SMALL = 0
+ICON_BIG = 1
+IMAGE_ICON = 1
+LR_LOADFROMFILE = 0x0010
+LR_DEFAULTSIZE = 0x0040
 
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
 
 # 应用信息
-APP_NAME = "QuickCli"
-APP_VERSION = "1.0.0"
-APP_ID = "QuickCli.1.0"
-PRESET_COMMANDS = ["claude", "codex", "iflow"]
+APP_NAME = APP_METADATA["app_name"]
+APP_VERSION = APP_METADATA["version"]
+APP_ID = APP_METADATA["app_user_model_id"]
+PRESET_COMMANDS = list(APP_METADATA.get("preset_commands", ["claude", "codex", "iflow"]))
 
 # 默认配置
 DEFAULT_CONFIG = {
@@ -45,10 +93,62 @@ DEFAULT_CONFIG = {
     "max_history": 20
 }
 
+def get_app_dir() -> Path:
+    """获取应用运行目录"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).parent.resolve()
+
+
+def get_resource_dir() -> Path:
+    """获取资源文件目录"""
+    return get_bootstrap_dir()
+
+
+def get_config_file(app_dir: Path) -> Path:
+    """获取配置文件路径，打包后改为用户目录，避免写入安装目录"""
+    if not getattr(sys, "frozen", False):
+        return app_dir / "settings.json"
+
+    appdata = os.getenv("APPDATA")
+    config_dir = Path(appdata) if appdata else (Path.home() / "AppData" / "Roaming")
+    return config_dir / APP_NAME / "settings.json"
+
+
 # 获取应用路径
-APP_DIR = Path(__file__).parent.resolve()
-CONFIG_FILE = APP_DIR / "settings.json"
-ICON_FILE = APP_DIR / "icon.ico"
+APP_DIR = get_app_dir()
+RESOURCE_DIR = get_resource_dir()
+LEGACY_CONFIG_FILE = APP_DIR / "settings.json"
+CONFIG_FILE = get_config_file(APP_DIR)
+ICON_FILE = RESOURCE_DIR / "icon.ico"
+
+
+def apply_window_icon(window):
+    """为 Windows 窗口设置标题栏和任务栏图标"""
+    if not ICON_FILE.exists():
+        return
+
+    try:
+        window.iconbitmap(default=str(ICON_FILE))
+    except Exception:
+        pass
+
+    try:
+        window.update_idletasks()
+        hwnd = window.winfo_id()
+        hicon = ctypes.windll.user32.LoadImageW(
+            0,
+            str(ICON_FILE),
+            IMAGE_ICON,
+            0,
+            0,
+            LR_LOADFROMFILE | LR_DEFAULTSIZE
+        )
+        if hicon:
+            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon)
+            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon)
+    except Exception:
+        pass
 
 
 def _dedupe_commands(commands) -> List[str]:
@@ -116,11 +216,18 @@ def normalize_windows_path(path: str) -> str:
 def load_config() -> dict:
     """加载配置文件"""
     config = DEFAULT_CONFIG.copy()
-    if CONFIG_FILE.exists():
+    config_candidates = [CONFIG_FILE]
+    if LEGACY_CONFIG_FILE != CONFIG_FILE:
+        config_candidates.append(LEGACY_CONFIG_FILE)
+
+    for config_file in config_candidates:
+        if not config_file.exists():
+            continue
         try:
-            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 saved = json.load(f)
                 config.update(normalize_config(saved))
+                break
         except Exception as e:
             print(f"加载配置失败: {e}")
     return config
@@ -130,6 +237,7 @@ def save_config(config: dict):
     """保存配置文件"""
     try:
         normalized = normalize_config(config)
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(normalized, f, ensure_ascii=False, indent=2)
     except Exception as e:
@@ -175,8 +283,7 @@ class QuickCliApp(tk.Tk):
         self.configure(bg=ModernStyle.BG_COLOR)
         
         # 设置图标
-        if ICON_FILE.exists():
-            self.iconbitmap(str(ICON_FILE))
+        apply_window_icon(self)
         
         # 设置样式
         self._setup_styles()
@@ -806,8 +913,7 @@ class SettingsWindow(tk.Toplevel):
         self.configure(bg=ModernStyle.BG_COLOR)
         
         # 设置图标
-        if ICON_FILE.exists():
-            self.iconbitmap(str(ICON_FILE))
+        apply_window_icon(self)
         
         # 模态窗口
         self.transient(parent)
