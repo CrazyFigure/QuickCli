@@ -1,0 +1,38 @@
+# Local docs and agent files
+/IFLOW.md
+/CLAUDE.md
+/AGENTS.md
+
+# AI / assistant tool folders
+/.codebuddy/
+/.claude/
+/.iflow/
+
+# IDE
+/.idea/
+/.vscode/
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local config overrides
+*.local
+
+# App runtime data
+/settings.json
+*.lnk
