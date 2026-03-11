@@ -67,6 +67,13 @@ try:
 except Exception:
     pass
 
+WM_SETICON = 0x0080
+ICON_SMALL = 0
+ICON_BIG = 1
+IMAGE_ICON = 1
+LR_LOADFROMFILE = 0x0010
+LR_DEFAULTSIZE = 0x0040
+
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk, filedialog, messagebox
@@ -114,6 +121,34 @@ RESOURCE_DIR = get_resource_dir()
 LEGACY_CONFIG_FILE = APP_DIR / "settings.json"
 CONFIG_FILE = get_config_file(APP_DIR)
 ICON_FILE = RESOURCE_DIR / "icon.ico"
+
+
+def apply_window_icon(window):
+    """为 Windows 窗口设置标题栏和任务栏图标"""
+    if not ICON_FILE.exists():
+        return
+
+    try:
+        window.iconbitmap(default=str(ICON_FILE))
+    except Exception:
+        pass
+
+    try:
+        window.update_idletasks()
+        hwnd = window.winfo_id()
+        hicon = ctypes.windll.user32.LoadImageW(
+            0,
+            str(ICON_FILE),
+            IMAGE_ICON,
+            0,
+            0,
+            LR_LOADFROMFILE | LR_DEFAULTSIZE
+        )
+        if hicon:
+            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon)
+            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon)
+    except Exception:
+        pass
 
 
 def _dedupe_commands(commands) -> List[str]:
@@ -248,8 +283,7 @@ class QuickCliApp(tk.Tk):
         self.configure(bg=ModernStyle.BG_COLOR)
         
         # 设置图标
-        if ICON_FILE.exists():
-            self.iconbitmap(str(ICON_FILE))
+        apply_window_icon(self)
         
         # 设置样式
         self._setup_styles()
@@ -879,8 +913,7 @@ class SettingsWindow(tk.Toplevel):
         self.configure(bg=ModernStyle.BG_COLOR)
         
         # 设置图标
-        if ICON_FILE.exists():
-            self.iconbitmap(str(ICON_FILE))
+        apply_window_icon(self)
         
         # 模态窗口
         self.transient(parent)
