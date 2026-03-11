@@ -91,10 +91,82 @@ settings.json
 - `history`：历史记录
 - `max_history`：历史记录最大数量
 
+打包为 `exe` 后，配置文件会自动改为写入当前用户目录：
+
+```text
+%APPDATA%\QuickCli\settings.json
+```
+
+这样可以避免安装到 `Program Files` 后因为目录不可写导致设置保存失败。
+
+## 打包 Windows 可执行文件
+
+本项目可以直接打包为 Windows 单文件 `exe`，不需要 Visual Studio。
+
+### 本地构建便携版 exe
+
+```powershell
+python -m pip install pyinstaller
+python -m PyInstaller .\QuickCli.spec --noconfirm --clean
+```
+
+如果你的环境没有 `python` 命令，也可以改用 `py`：
+
+```powershell
+py -m pip install pyinstaller
+py -m PyInstaller .\QuickCli.spec --noconfirm --clean
+```
+
+输出文件：
+
+```text
+dist\QuickCli.exe
+```
+
+### 本地构建安装版 exe
+
+如果已经安装 Inno Setup 6，可以直接执行：
+
+```powershell
+.\build.ps1 -Installer
+```
+
+输出文件：
+
+```text
+output\QuickCli-Setup.exe
+```
+
+## GitHub Actions 自动构建
+
+仓库已提供工作流：
+
+```text
+.github/workflows/windows-build.yml
+```
+
+触发方式：
+
+- 推送到 `main`
+- 推送到 `feat/**` 分支
+- 在 GitHub Actions 页面手动执行 `workflow_dispatch`
+
+工作流会自动生成两类构建产物：
+
+- `QuickCli-portable-exe`
+- `QuickCli-setup-exe`
+
 ## 项目结构
 
 ```text
 QuickCli/
+├─ .github/
+│  └─ workflows/
+│     └─ windows-build.yml
+├─ installer/
+│  └─ QuickCli.iss
+├─ QuickCli.spec
+├─ build.ps1
 ├─ main.py
 ├─ settings.json
 ├─ QuickCli.bat

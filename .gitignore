@@ -20,6 +20,12 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+/build/
+/dist/
+/output/
+/installer/dist/
+/installer/output/
+/installer/icon.ico
 
 # Virtual environments
 .venv/

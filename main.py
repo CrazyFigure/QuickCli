@@ -32,8 +32,8 @@ from tkinter import ttk, filedialog, messagebox
 
 # 应用信息
 APP_NAME = "QuickCli"
-APP_VERSION = "1.0.0"
-APP_ID = "QuickCli.1.0"
+APP_VERSION = "2.0.0"
+APP_ID = "QuickCli.2.0"
 PRESET_COMMANDS = ["claude", "codex", "iflow"]
 
 # 默认配置
@@ -45,10 +45,38 @@ DEFAULT_CONFIG = {
     "max_history": 20
 }
 
+def get_app_dir() -> Path:
+    """获取应用运行目录"""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).parent.resolve()
+
+
+def get_resource_dir() -> Path:
+    """获取资源文件目录"""
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", "")
+        if meipass:
+            return Path(meipass)
+    return Path(__file__).parent.resolve()
+
+
+def get_config_file(app_dir: Path) -> Path:
+    """获取配置文件路径，打包后改为用户目录，避免写入安装目录"""
+    if not getattr(sys, "frozen", False):
+        return app_dir / "settings.json"
+
+    appdata = os.getenv("APPDATA")
+    config_dir = Path(appdata) if appdata else (Path.home() / "AppData" / "Roaming")
+    return config_dir / APP_NAME / "settings.json"
+
+
 # 获取应用路径
-APP_DIR = Path(__file__).parent.resolve()
-CONFIG_FILE = APP_DIR / "settings.json"
-ICON_FILE = APP_DIR / "icon.ico"
+APP_DIR = get_app_dir()
+RESOURCE_DIR = get_resource_dir()
+LEGACY_CONFIG_FILE = APP_DIR / "settings.json"
+CONFIG_FILE = get_config_file(APP_DIR)
+ICON_FILE = RESOURCE_DIR / "icon.ico"
 
 
 def _dedupe_commands(commands) -> List[str]:
@@ -116,11 +144,18 @@ def normalize_windows_path(path: str) -> str:
 def load_config() -> dict:
     """加载配置文件"""
     config = DEFAULT_CONFIG.copy()
-    if CONFIG_FILE.exists():
+    config_candidates = [CONFIG_FILE]
+    if LEGACY_CONFIG_FILE != CONFIG_FILE:
+        config_candidates.append(LEGACY_CONFIG_FILE)
+
+    for config_file in config_candidates:
+        if not config_file.exists():
+            continue
         try:
-            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+            with open(config_file, 'r', encoding='utf-8') as f:
                 saved = json.load(f)
                 config.update(normalize_config(saved))
+                break
         except Exception as e:
             print(f"加载配置失败: {e}")
     return config
@@ -130,6 +165,7 @@ def save_config(config: dict):
     """保存配置文件"""
     try:
         normalized = normalize_config(config)
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(normalized, f, ensure_ascii=False, indent=2)
     except Exception as e:
