@@ -62,7 +62,7 @@ a = Analysis(
         (str(icon_file), "."),
         (str(metadata_file), "."),
     ],
-    hiddenimports=[],
+    hiddenimports=['PIL', 'pystray._win32'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -12,6 +12,13 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+import threading
+from PIL import Image
+try:
+    from pystray import Icon, Menu, MenuItem
+except ImportError:
+    # 允许在没有 pystray 的环境下运行（如开发环境），但托盘功能将不可用
+    Icon = None
 
 METADATA_FILE = "app_metadata.json"
 
@@ -89,6 +96,7 @@ DEFAULT_CONFIG = {
     "terminal_path": r"C:\Program Files\PowerShell\7\pwsh.exe",
     "custom_commands": [],
     "command_order": PRESET_COMMANDS.copy(),
+    "primary_command": "codex",  # 默认主命令
     "history": [],
     "max_history": 20
 }
@@ -169,7 +177,8 @@ def normalize_config(raw_config: dict) -> dict:
     config = {
         "terminal_path": raw_config.get("terminal_path", DEFAULT_CONFIG["terminal_path"]),
         "history": raw_config.get("history", DEFAULT_CONFIG["history"]),
-        "max_history": raw_config.get("max_history", DEFAULT_CONFIG["max_history"])
+        "max_history": raw_config.get("max_history", DEFAULT_CONFIG["max_history"]),
+        "primary_command": raw_config.get("primary_command", DEFAULT_CONFIG["primary_command"])
     }
 
     legacy_commands = _dedupe_commands(raw_config.get("commands", []))
@@ -274,6 +283,10 @@ class QuickCliApp(tk.Tk):
         
         # 加载配置
         self.config = load_config()
+        self.primary_command = self.config.get("primary_command", "codex")
+        
+        # 托盘图标实例
+        self.tray_icon = None
         
         # 设置窗口
         self.title(APP_NAME)
@@ -296,6 +309,107 @@ class QuickCliApp(tk.Tk):
         
         # 居中窗口
         self._center_window()
+        
+        # 设置托盘图标
+        self._setup_tray()
+        
+        # 关闭窗口时隐藏而非退出
+        self.protocol("WM_DELETE_WINDOW", self._hide_window)
+    
+    def _hide_window(self):
+        """隐藏主窗口"""
+        self.withdraw()
+    
+    def _show_window(self):
+        """显示主窗口"""
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def _setup_tray(self):
+        """初始化系统托盘"""
+        if Icon is None or not ICON_FILE.exists():
+            return
+            
+        try:
+            image = Image.open(str(ICON_FILE))
+            self.tray_icon = Icon(
+                APP_NAME,
+                image,
+                APP_NAME,
+                menu=self._build_tray_menu()
+            )
+            # 在独立线程中运行托盘图标，避免阻塞 tkinter 主循环
+            threading.Thread(target=self.tray_icon.run, daemon=True).start()
+        except Exception as e:
+            print(f"初始化托盘失败: {e}")
+
+    def _build_tray_menu(self):
+        """构建托盘右键菜单 - 平级分块展示"""
+        menu_items = []
+        
+        # 1. 打开主界面
+        menu_items.append(MenuItem("打开主界面", self._show_window, default=True))
+        menu_items.append(Menu.Separator())
+        
+        # 2. 选择主命令区域 (打对勾表示选中)
+        available_commands = get_available_commands(self.config)
+        for cmd in available_commands:
+            # 使用闭包绑定命令
+            def make_cmd_handler(c):
+                return lambda: self._set_primary_command(c)
+            
+            is_checked = (cmd == self.primary_command)
+            menu_items.append(MenuItem(
+                f"{'√ ' if is_checked else '  '}{cmd}",
+                make_cmd_handler(cmd)
+            ))
+            
+        menu_items.append(Menu.Separator())
+        
+        # 3. 历史目录区域 (展示 ...最后一级目录名)
+        history = self.config.get("history", [])
+        if not history:
+            menu_items.append(MenuItem("暂无历史目录", lambda: None, enabled=False))
+        else:
+            # 只显示最近 10 条历史记录以保持菜单长度合理
+            for item in history[:10]:
+                path = item.get("path", "")
+                if not path:
+                    continue
+                
+                # 获取最后一级目录名并拼接 ...
+                folder_name = os.path.basename(path.rstrip('\\/'))
+                display_name = f"...{folder_name}"
+                
+                def make_history_handler(p):
+                    return lambda: self._open_terminal(p, self.primary_command)
+                
+                menu_items.append(MenuItem(display_name, make_history_handler(path)))
+        
+        menu_items.append(Menu.Separator())
+        
+        # 4. 退出
+        menu_items.append(MenuItem("退出", self._quit_app))
+        
+        return Menu(*menu_items)
+
+    def _set_primary_command(self, cmd):
+        """设置主命令并刷新菜单"""
+        self.primary_command = cmd
+        self.config["primary_command"] = cmd
+        save_config(self.config)
+        # 重新生成菜单以更新打勾状态
+        if self.tray_icon:
+            self.tray_icon.menu = self._build_tray_menu()
+
+    def _quit_app(self):
+        """完全退出应用"""
+        if self.tray_icon:
+            self.tray_icon.stop()
+        self.quit()
+        self.destroy()
+        sys.exit(0)
     
     def _setup_styles(self):
         """设置 ttk 样式"""
