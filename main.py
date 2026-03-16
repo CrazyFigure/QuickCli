@@ -12,6 +12,12 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
+import threading
+import urllib.request
+import urllib.error
+import tempfile
+from PIL import Image
+from pystray import Icon, Menu, MenuItem
 
 METADATA_FILE = "app_metadata.json"
 
@@ -89,6 +95,7 @@ DEFAULT_CONFIG = {
     "terminal_path": r"C:\Program Files\PowerShell\7\pwsh.exe",
     "custom_commands": [],
     "command_order": PRESET_COMMANDS.copy(),
+    "primary_command": "codex",  # 默认主命令
     "history": [],
     "max_history": 20
 }
@@ -169,7 +176,8 @@ def normalize_config(raw_config: dict) -> dict:
     config = {
         "terminal_path": raw_config.get("terminal_path", DEFAULT_CONFIG["terminal_path"]),
         "history": raw_config.get("history", DEFAULT_CONFIG["history"]),
-        "max_history": raw_config.get("max_history", DEFAULT_CONFIG["max_history"])
+        "max_history": raw_config.get("max_history", DEFAULT_CONFIG["max_history"]),
+        "primary_command": raw_config.get("primary_command", DEFAULT_CONFIG["primary_command"])
     }
 
     legacy_commands = _dedupe_commands(raw_config.get("commands", []))
@@ -266,6 +274,48 @@ class ModernStyle:
     FONT_SIZE_COMBO = 12
 
 
+def check_for_updates() -> dict:
+    """检查 GitHub Release 是否有新版本"""
+    api_url = "https://api.github.com/repos/CrazyFigure/QuickCli/releases/latest"
+    try:
+        req = urllib.request.Request(api_url, headers={'User-Agent': 'QuickCli-AutoUpdater'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode('utf-8'))
+            latest_tag = data.get("tag_name", "")
+            if not latest_tag.startswith("v"):
+                return {"has_update": False}
+                
+            latest_version = latest_tag[1:] # 去除 'v'
+            
+            # 简单版本比较
+            current_parts = [int(p) for p in APP_VERSION.split(".") if p.isdigit()]
+            latest_parts = [int(p) for p in latest_version.split(".") if p.isdigit()]
+            
+            # 补齐长度以便比较
+            length = max(len(current_parts), len(latest_parts))
+            current_parts.extend([0] * (length - len(current_parts)))
+            latest_parts.extend([0] * (length - len(latest_parts)))
+            
+            has_update = tuple(latest_parts) > tuple(current_parts)
+            
+            download_url = ""
+            if has_update:
+                for asset in data.get("assets", []):
+                    if asset.get("name", "").endswith("Setup.exe"):
+                        download_url = asset.get("browser_download_url", "")
+                        break
+            
+            return {
+                "has_update": has_update,
+                "latest_version": latest_version,
+                "download_url": download_url,
+                "release_notes": data.get("body", "")
+            }
+    except Exception as e:
+        print(f"检查更新失败: {e}")
+        return {"has_update": False, "error": str(e)}
+
+
 class QuickCliApp(tk.Tk):
     """QuickCli 主应用"""
     
@@ -274,6 +324,10 @@ class QuickCliApp(tk.Tk):
         
         # 加载配置
         self.config = load_config()
+        self.primary_command = self.config.get("primary_command", "codex")
+        
+        # 托盘图标实例
+        self.tray_icon = None
         
         # 设置窗口
         self.title(APP_NAME)
@@ -296,6 +350,214 @@ class QuickCliApp(tk.Tk):
         
         # 居中窗口
         self._center_window()
+        
+        # 设置托盘图标
+        self._setup_tray()
+        
+        # 关闭窗口时隐藏而非退出
+        self.protocol("WM_DELETE_WINDOW", self._hide_window)
+    
+    def _hide_window(self):
+        """隐藏主窗口"""
+        self.withdraw()
+    
+    def _show_window(self):
+        """显示主窗口"""
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def _setup_tray(self):
+        """初始化系统托盘"""
+        if Icon is None or not ICON_FILE.exists():
+            return
+            
+        try:
+            image = Image.open(str(ICON_FILE))
+            self.tray_icon = Icon(
+                APP_NAME,
+                image,
+                APP_NAME,
+                menu=self._build_tray_menu()
+            )
+            # run_detached() 内部会自己管理线程，无需手动创建线程
+            # Win32 后端的消息泵需要在主线程外运行，run_detached 正确处理了这一点
+            self.tray_icon.run_detached()
+        except Exception as e:
+            print(f"初始化托盘失败: {e}")
+
+    def _build_tray_menu(self):
+        """构建托盘右键菜单 - 平级分块展示"""
+        menu_items = []
+        
+        # 1. 打开主界面
+        menu_items.append(MenuItem("打开主界面", self._show_window, default=True))
+        menu_items.append(Menu.SEPARATOR)
+        
+        # 2. 选择主命令区域 (打对勾表示选中)
+        available_commands = get_available_commands(self.config)
+        for cmd in available_commands:
+            # 使用闭包绑定命令
+            def make_cmd_handler(c):
+                return lambda: self._set_primary_command(c)
+            
+            is_checked = (cmd == self.primary_command)
+            menu_items.append(MenuItem(
+                f"{'√ ' if is_checked else '  '}{cmd}",
+                make_cmd_handler(cmd)
+            ))
+            
+        menu_items.append(Menu.SEPARATOR)
+        
+        # 3. 历史目录区域标题 (禁用项仅作视觉标识)
+        menu_items.append(MenuItem("📂 历史目录", lambda: None, enabled=False))
+        
+        # 历史目录列表 (展示 ...最后一级目录名)
+        history = self.config.get("history", [])
+        if not history:
+            menu_items.append(MenuItem("  暂无历史目录", lambda: None, enabled=False))
+        else:
+            # 只显示最近 10 条历史记录以保持菜单长度合理
+            for item in history[:10]:
+                path = item.get("path", "")
+                if not path:
+                    continue
+                
+                # 获取最后一级目录名并拼接 ...
+                folder_name = os.path.basename(path.rstrip('\\/'))
+                display_name = f".../{folder_name}"
+                
+                def make_history_handler(p):
+                    return lambda: self._open_terminal(p, self.primary_command)
+                
+                menu_items.append(MenuItem(display_name, make_history_handler(path)))
+        
+        menu_items.append(Menu.SEPARATOR)
+        
+        # 4. 检查更新
+        menu_items.append(MenuItem("检查更新", self._on_check_update_clicked))
+        
+        # 5. 退出
+        menu_items.append(MenuItem("退出", self._quit_app))
+        
+        return Menu(*menu_items)
+
+    def _on_check_update_clicked(self):
+        """点击检查更新（托盘或主界面调用）"""
+        threading.Thread(target=self._perform_update_check, daemon=True).start()
+        
+    def _perform_update_check(self):
+        """执行更新检查的后台任务"""
+        result = check_for_updates()
+        self.after(0, lambda: self._show_update_result(result))
+        
+    def _show_update_result(self, result):
+        """展示更新检查结果"""
+        # 不自动唤出主界面，只在需要下载时才显示
+        if result.get("error"):
+            messagebox.showerror("更新检查失败", f"无法检查更新:\n{result['error']}")
+            return
+            
+        if not result.get("has_update"):
+            messagebox.showinfo("检查更新", f"当前已是最新版本 (v{APP_VERSION})！")
+            return
+            
+        latest_version = result.get("latest_version")
+        download_url = result.get("download_url")
+        
+        if not download_url:
+            messagebox.showerror("发现新版本", f"发现新版本 v{latest_version}，但未找到对应的安装包下载链接。")
+            return
+            
+        msg = f"发现新版本: v{latest_version}\n\n是否立即下载并更新？"
+        if messagebox.askyesno("发现更新", msg):
+            # 下载进度窗口需要父窗口可见，此时才打开主界面
+            self._show_window()
+            self._download_and_install_update(download_url)
+            
+    def _download_and_install_update(self, url: str):
+        """下载并安装更新"""
+        progress_win = tk.Toplevel(self)
+        progress_win.title("下载更新")
+        progress_win.geometry("400x150")
+        progress_win.resizable(False, False)
+        progress_win.transient(self)
+        progress_win.grab_set()
+        apply_window_icon(progress_win)
+        
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width() - 400) // 2
+        y = self.winfo_y() + (self.winfo_height() - 150) // 2
+        progress_win.geometry(f"+{x}+{y}")
+        
+        lbl = ttk.Label(progress_win, text="正在下载最新版本，请稍候...", font=(ModernStyle.FONT_FAMILY, 11))
+        lbl.pack(pady=(25, 10))
+        
+        progress = ttk.Progressbar(progress_win, orient="horizontal", length=300, mode="determinate")
+        progress.pack(pady=10)
+        
+        def download_task():
+            try:
+                temp_dir = tempfile.gettempdir()
+                setup_path = os.path.join(temp_dir, "QuickCli-Update-Setup.exe")
+                
+                req = urllib.request.Request(url, headers={'User-Agent': 'QuickCli-AutoUpdater'})
+                with urllib.request.urlopen(req, timeout=30) as response:
+                    total_size = int(response.info().get('Content-Length', 0))
+                    downloaded = 0
+                    chunk_size = 8192
+                    
+                    with open(setup_path, 'wb') as f:
+                        while True:
+                            chunk = response.read(chunk_size)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                            downloaded += len(chunk)
+                            if total_size > 0:
+                                percent = min(int(downloaded * 100 / total_size), 100)
+                                self.after(0, lambda p=percent: progress.configure(value=p))
+                
+                self.after(0, lambda: self._execute_installer(setup_path, progress_win))
+            except Exception as e:
+                self.after(0, lambda: self._on_download_error(progress_win, str(e)))
+                
+        threading.Thread(target=download_task, daemon=True).start()
+        
+    def _on_download_error(self, win, error_msg):
+        win.destroy()
+        messagebox.showerror("下载失败", f"更新包下载失败:\n{error_msg}")
+        
+    def _execute_installer(self, setup_path, win):
+        """执行安装包并退出当前程序"""
+        win.destroy()
+        try:
+            subprocess.Popen([setup_path, "/SILENT", "/SP-", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS"])
+            self._quit_app()
+        except Exception as e:
+            messagebox.showerror("安装失败", f"启动更新程序失败:\n{e}")
+
+    def _refresh_tray_menu(self):
+        """同步刷新托盘右键菜单（历史目录、主命令选中状态）"""
+        if self.tray_icon:
+            self.tray_icon.menu = self._build_tray_menu()
+            self.tray_icon.update_menu()
+
+    def _set_primary_command(self, cmd):
+        """设置主命令并刷新菜单"""
+        self.primary_command = cmd
+        self.config["primary_command"] = cmd
+        save_config(self.config)
+        # 重新生成菜单并通知 pystray 刷新显示
+        self._refresh_tray_menu()
+
+    def _quit_app(self):
+        """完全退出应用"""
+        if self.tray_icon:
+            self.tray_icon.stop()
+        self.quit()
+        self.destroy()
+        sys.exit(0)
     
     def _setup_styles(self):
         """设置 ttk 样式"""
@@ -690,6 +952,8 @@ class QuickCliApp(tk.Tk):
             empty_label.pack(pady=30)
             self.history_canvas.yview_moveto(0)
             self._update_history_scrollbar()
+            # 历史记录清空时同步更新托盘菜单
+            self._refresh_tray_menu()
             return
         
         available_commands = get_available_commands(self.config)
@@ -701,6 +965,8 @@ class QuickCliApp(tk.Tk):
         self.history_canvas.configure(scrollregion=self.history_canvas.bbox('all'))
         self.history_canvas.yview_moveto(0)
         self._update_history_scrollbar()
+        # 历史记录变化时同步更新托盘菜单
+        self._refresh_tray_menu()
 
     def _create_history_item(self, item: dict, available_commands: list):
         """创建历史记录项"""
@@ -1058,15 +1324,37 @@ class SettingsWindow(tk.Toplevel):
         btn_frame = ttk.Frame(main_frame, style='TFrame')
         btn_frame.pack(fill='x', pady=(20, 0))
         
+        # 左侧：检查更新和版本号
+        left_btn_frame = ttk.Frame(btn_frame, style='TFrame')
+        left_btn_frame.pack(side='left')
+        
         ttk.Button(
-            btn_frame,
+            left_btn_frame,
+            text="检查更新",
+            style='Outline.TButton',
+            command=self.parent._on_check_update_clicked
+        ).pack(side='left')
+        
+        ttk.Label(
+            left_btn_frame,
+            text=f"v{APP_VERSION}",
+            foreground=ModernStyle.TEXT_SECONDARY,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL)
+        ).pack(side='left', padx=(10, 0))
+        
+        # 右侧：保存取消
+        right_btn_frame = ttk.Frame(btn_frame, style='TFrame')
+        right_btn_frame.pack(side='right')
+        
+        ttk.Button(
+            right_btn_frame,
             text="保存",
             style='Accent.TButton',
             command=self._save
         ).pack(side='right', padx=(10, 0))
         
         ttk.Button(
-            btn_frame,
+            right_btn_frame,
             text="取消",
             style='Outline.TButton',
             command=self.destroy

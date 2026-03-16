@@ -28,7 +28,7 @@ if (-not $pythonCmd) {
 "@ | Set-Content $installerMetadataFile -Encoding UTF8
 
 & $pythonCmd.Source -m pip install --upgrade pip
-& $pythonCmd.Source -m pip install pyinstaller
+& $pythonCmd.Source -m pip install pyinstaller pystray Pillow
 & $pythonCmd.Source -m PyInstaller .\QuickCli.spec --noconfirm --clean
 
 if ($Installer) {
