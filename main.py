@@ -380,8 +380,9 @@ class QuickCliApp(tk.Tk):
                 APP_NAME,
                 menu=self._build_tray_menu()
             )
-            # 在独立线程中运行托盘图标，避免阻塞 tkinter 主循环
-            threading.Thread(target=self.tray_icon.run, daemon=True).start()
+            # run_detached() 内部会自己管理线程，无需手动创建线程
+            # Win32 后端的消息泵需要在主线程外运行，run_detached 正确处理了这一点
+            self.tray_icon.run_detached()
         except Exception as e:
             print(f"初始化托盘失败: {e}")
 
@@ -391,7 +392,7 @@ class QuickCliApp(tk.Tk):
         
         # 1. 打开主界面
         menu_items.append(MenuItem("打开主界面", self._show_window, default=True))
-        menu_items.append(Menu.Separator())
+        menu_items.append(Menu.SEPARATOR)
         
         # 2. 选择主命令区域 (打对勾表示选中)
         available_commands = get_available_commands(self.config)
@@ -406,12 +407,15 @@ class QuickCliApp(tk.Tk):
                 make_cmd_handler(cmd)
             ))
             
-        menu_items.append(pystray.Menu.SEPARATOR)
+        menu_items.append(Menu.SEPARATOR)
         
-        # 3. 历史目录区域 (展示 ...最后一级目录名)
+        # 3. 历史目录区域标题 (禁用项仅作视觉标识)
+        menu_items.append(MenuItem("📂 历史目录", lambda: None, enabled=False))
+        
+        # 历史目录列表 (展示 ...最后一级目录名)
         history = self.config.get("history", [])
         if not history:
-            menu_items.append(MenuItem("暂无历史目录", lambda: None, enabled=False))
+            menu_items.append(MenuItem("  暂无历史目录", lambda: None, enabled=False))
         else:
             # 只显示最近 10 条历史记录以保持菜单长度合理
             for item in history[:10]:
@@ -421,14 +425,14 @@ class QuickCliApp(tk.Tk):
                 
                 # 获取最后一级目录名并拼接 ...
                 folder_name = os.path.basename(path.rstrip('\\/'))
-                display_name = f"...{folder_name}"
+                display_name = f".../{folder_name}"
                 
                 def make_history_handler(p):
                     return lambda: self._open_terminal(p, self.primary_command)
                 
                 menu_items.append(MenuItem(display_name, make_history_handler(path)))
         
-        menu_items.append(pystray.Menu.SEPARATOR)
+        menu_items.append(Menu.SEPARATOR)
         
         # 4. 检查更新
         menu_items.append(MenuItem("检查更新", self._on_check_update_clicked))
@@ -449,8 +453,7 @@ class QuickCliApp(tk.Tk):
         
     def _show_update_result(self, result):
         """展示更新检查结果"""
-        self._show_window()
-        
+        # 不自动唤出主界面，只在需要下载时才显示
         if result.get("error"):
             messagebox.showerror("更新检查失败", f"无法检查更新:\n{result['error']}")
             return
@@ -468,6 +471,8 @@ class QuickCliApp(tk.Tk):
             
         msg = f"发现新版本: v{latest_version}\n\n是否立即下载并更新？"
         if messagebox.askyesno("发现更新", msg):
+            # 下载进度窗口需要父窗口可见，此时才打开主界面
+            self._show_window()
             self._download_and_install_update(download_url)
             
     def _download_and_install_update(self, url: str):
@@ -537,9 +542,10 @@ class QuickCliApp(tk.Tk):
         self.primary_command = cmd
         self.config["primary_command"] = cmd
         save_config(self.config)
-        # 重新生成菜单以更新打勾状态
+        # 重新生成菜单并通知 pystray 刷新显示
         if self.tray_icon:
             self.tray_icon.menu = self._build_tray_menu()
+            self.tray_icon.update_menu()
 
     def _quit_app(self):
         """完全退出应用"""
