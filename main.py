@@ -537,15 +537,19 @@ class QuickCliApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("安装失败", f"启动更新程序失败:\n{e}")
 
+    def _refresh_tray_menu(self):
+        """同步刷新托盘右键菜单（历史目录、主命令选中状态）"""
+        if self.tray_icon:
+            self.tray_icon.menu = self._build_tray_menu()
+            self.tray_icon.update_menu()
+
     def _set_primary_command(self, cmd):
         """设置主命令并刷新菜单"""
         self.primary_command = cmd
         self.config["primary_command"] = cmd
         save_config(self.config)
         # 重新生成菜单并通知 pystray 刷新显示
-        if self.tray_icon:
-            self.tray_icon.menu = self._build_tray_menu()
-            self.tray_icon.update_menu()
+        self._refresh_tray_menu()
 
     def _quit_app(self):
         """完全退出应用"""
@@ -948,6 +952,8 @@ class QuickCliApp(tk.Tk):
             empty_label.pack(pady=30)
             self.history_canvas.yview_moveto(0)
             self._update_history_scrollbar()
+            # 历史记录清空时同步更新托盘菜单
+            self._refresh_tray_menu()
             return
         
         available_commands = get_available_commands(self.config)
@@ -959,6 +965,8 @@ class QuickCliApp(tk.Tk):
         self.history_canvas.configure(scrollregion=self.history_canvas.bbox('all'))
         self.history_canvas.yview_moveto(0)
         self._update_history_scrollbar()
+        # 历史记录变化时同步更新托盘菜单
+        self._refresh_tray_menu()
 
     def _create_history_item(self, item: dict, available_commands: list):
         """创建历史记录项"""
