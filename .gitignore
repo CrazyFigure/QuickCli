@@ -43,3 +43,6 @@ Thumbs.db
 # App runtime data
 /settings.json
 *.lnk
+
+# 开发用批处理（含个人路径，不入库）
+QuickCli.bat

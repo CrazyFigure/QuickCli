@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 QuickCli - Windows 快速命令行启动器
-使用标准 tkinter，无需额外依赖
+使用 customtkinter 构建现代化 UI
 """
 
 import json
@@ -18,6 +18,13 @@ import urllib.error
 import tempfile
 from PIL import Image
 from pystray import Icon, Menu, MenuItem
+
+# 新增 customtkinter
+import customtkinter as ctk
+
+import tkinter as tk
+import tkinter.font as tkfont
+from tkinter import filedialog, messagebox
 
 METADATA_FILE = "app_metadata.json"
 
@@ -79,10 +86,6 @@ ICON_BIG = 1
 IMAGE_ICON = 1
 LR_LOADFROMFILE = 0x0010
 LR_DEFAULTSIZE = 0x0040
-
-import tkinter as tk
-import tkinter.font as tkfont
-from tkinter import ttk, filedialog, messagebox
 
 # 应用信息
 APP_NAME = APP_METADATA["app_name"]
@@ -253,25 +256,28 @@ def save_config(config: dict):
 
 
 class ModernStyle:
-    """现代化样式配置 - 亮色主题"""
-    
-    # 颜色方案 (亮色主题)
-    BG_COLOR = "#f5f5f5"           # 主背景 - 浅灰白色
-    CARD_BG = "#ffffff"            # 卡片背景 - 纯白
-    ACCENT_COLOR = "#e3f2fd"       # 强调色 - 浅蓝
-    ACCENT_HOVER = "#bbdefb"       # 悬停色 - 稍深蓝
-    PRIMARY_COLOR = "#1976d2"      # 主色调 - 蓝色
-    PRIMARY_HOVER = "#1565c0"      # 主色悬停
-    TEXT_COLOR = "#212121"         # 主文字 - 深灰
-    TEXT_SECONDARY = "#757575"     # 次要文字 - 中灰
-    BORDER_COLOR = "#e0e0e0"       # 边框色 - 浅灰
-    
+    """现代化样式配置 - 基于 Tailwind CSS 色系"""
+
+    # 颜色方案
+    BG_COLOR = "#f0f4f8"           # 微蓝调浅灰背景
+    CARD_BG = "#ffffff"
+    ACCENT_COLOR = "#e8f4fd"       # 历史项底色
+    ACCENT_HOVER = "#d0e8f7"
+    PRIMARY_COLOR = "#2563eb"      # 更鲜活的蓝
+    PRIMARY_HOVER = "#1d4ed8"
+    SUCCESS_COLOR = "#059669"      # 绿色（打开终端）
+    SUCCESS_HOVER = "#047857"
+    DANGER_COLOR = "#dc2626"       # 红色（删除）
+    TEXT_COLOR = "#1e293b"         # 蓝灰深色
+    TEXT_SECONDARY = "#64748b"
+    TEXT_MUTED = "#94a3b8"         # 更淡辅助色
+    BORDER_COLOR = "#e2e8f0"
+
     # 字体
     FONT_FAMILY = "Segoe UI"
-    FONT_SIZE_TITLE = 20
-    FONT_SIZE_NORMAL = 11
-    FONT_SIZE_SMALL = 10
-    FONT_SIZE_COMBO = 12
+    FONT_SIZE_NORMAL = 13
+    FONT_SIZE_SMALL = 11
+    FONT_SIZE_COMBO = 13
 
 
 def check_for_updates() -> dict:
@@ -284,27 +290,27 @@ def check_for_updates() -> dict:
             latest_tag = data.get("tag_name", "")
             if not latest_tag.startswith("v"):
                 return {"has_update": False}
-                
-            latest_version = latest_tag[1:] # 去除 'v'
-            
+
+            latest_version = latest_tag[1:]
+
             # 简单版本比较
             current_parts = [int(p) for p in APP_VERSION.split(".") if p.isdigit()]
             latest_parts = [int(p) for p in latest_version.split(".") if p.isdigit()]
-            
+
             # 补齐长度以便比较
             length = max(len(current_parts), len(latest_parts))
             current_parts.extend([0] * (length - len(current_parts)))
             latest_parts.extend([0] * (length - len(latest_parts)))
-            
+
             has_update = tuple(latest_parts) > tuple(current_parts)
-            
+
             download_url = ""
             if has_update:
                 for asset in data.get("assets", []):
                     if asset.get("name", "").endswith("Setup.exe"):
                         download_url = asset.get("browser_download_url", "")
                         break
-            
+
             return {
                 "has_update": has_update,
                 "latest_version": latest_version,
@@ -316,51 +322,52 @@ def check_for_updates() -> dict:
         return {"has_update": False, "error": str(e)}
 
 
-class QuickCliApp(tk.Tk):
+# 设置 customtkinter 外观
+ctk.set_appearance_mode("light")
+ctk.set_default_color_theme("blue")
+
+
+class QuickCliApp(ctk.CTk):
     """QuickCli 主应用"""
-    
+
     def __init__(self):
         super().__init__()
-        
+
         # 加载配置
         self.config = load_config()
         self.primary_command = self.config.get("primary_command", "codex")
-        
+
         # 托盘图标实例
         self.tray_icon = None
-        
+
         # 设置窗口
         self.title(APP_NAME)
-        # 增大默认窗口尺寸
         self.geometry("1200x1200")
         self.minsize(600, 750)
-        self.configure(bg=ModernStyle.BG_COLOR)
-        
+        self.configure(fg_color=ModernStyle.BG_COLOR)
+
         # 设置图标
         apply_window_icon(self)
-        
-        # 设置样式
-        self._setup_styles()
-        
+
         # 创建 UI
         self._create_ui()
-        
+
         # 刷新历史记录列表
         self._refresh_history()
-        
+
         # 居中窗口
         self._center_window()
-        
+
         # 设置托盘图标
         self._setup_tray()
-        
+
         # 关闭窗口时隐藏而非退出
         self.protocol("WM_DELETE_WINDOW", self._hide_window)
-    
+
     def _hide_window(self):
         """隐藏主窗口"""
         self.withdraw()
-    
+
     def _show_window(self):
         """显示主窗口"""
         self.deiconify()
@@ -371,7 +378,7 @@ class QuickCliApp(tk.Tk):
         """初始化系统托盘"""
         if Icon is None or not ICON_FILE.exists():
             return
-            
+
         try:
             image = Image.open(str(ICON_FILE))
             self.tray_icon = Icon(
@@ -381,7 +388,6 @@ class QuickCliApp(tk.Tk):
                 menu=self._build_tray_menu()
             )
             # run_detached() 内部会自己管理线程，无需手动创建线程
-            # Win32 后端的消息泵需要在主线程外运行，run_detached 正确处理了这一点
             self.tray_icon.run_detached()
         except Exception as e:
             print(f"初始化托盘失败: {e}")
@@ -389,29 +395,30 @@ class QuickCliApp(tk.Tk):
     def _build_tray_menu(self):
         """构建托盘右键菜单 - 平级分块展示"""
         menu_items = []
-        
+
         # 1. 打开主界面
         menu_items.append(MenuItem("打开主界面", self._show_window, default=True))
         menu_items.append(Menu.SEPARATOR)
-        
-        # 2. 选择主命令区域 (打对勾表示选中)
+
+        # 2. 选择主命令区域 - 使用原生勾选标记
         available_commands = get_available_commands(self.config)
         for cmd in available_commands:
-            # 使用闭包绑定命令
             def make_cmd_handler(c):
                 return lambda: self._set_primary_command(c)
-            
-            is_checked = (cmd == self.primary_command)
+
+            # 使用 pystray 原生 checked + radio 参数
             menu_items.append(MenuItem(
-                f"{'√ ' if is_checked else '  '}{cmd}",
-                make_cmd_handler(cmd)
+                cmd,
+                make_cmd_handler(cmd),
+                checked=lambda item, c=cmd: c == self.primary_command,
+                radio=True
             ))
-            
+
         menu_items.append(Menu.SEPARATOR)
-        
+
         # 3. 历史目录区域标题 (禁用项仅作视觉标识)
         menu_items.append(MenuItem("📂 历史目录", lambda: None, enabled=False))
-        
+
         # 历史目录列表 (展示 ...最后一级目录名)
         history = self.config.get("history", [])
         if not history:
@@ -422,91 +429,91 @@ class QuickCliApp(tk.Tk):
                 path = item.get("path", "")
                 if not path:
                     continue
-                
+
                 # 获取最后一级目录名并拼接 ...
                 folder_name = os.path.basename(path.rstrip('\\/'))
                 display_name = f".../{folder_name}"
-                
+
                 def make_history_handler(p):
                     return lambda: self._open_terminal(p, self.primary_command)
-                
+
                 menu_items.append(MenuItem(display_name, make_history_handler(path)))
-        
+
         menu_items.append(Menu.SEPARATOR)
-        
+
         # 4. 检查更新
         menu_items.append(MenuItem("检查更新", self._on_check_update_clicked))
-        
+
         # 5. 退出
         menu_items.append(MenuItem("退出", self._quit_app))
-        
+
         return Menu(*menu_items)
 
     def _on_check_update_clicked(self):
         """点击检查更新（托盘或主界面调用）"""
         threading.Thread(target=self._perform_update_check, daemon=True).start()
-        
+
     def _perform_update_check(self):
         """执行更新检查的后台任务"""
         result = check_for_updates()
         self.after(0, lambda: self._show_update_result(result))
-        
+
     def _show_update_result(self, result):
         """展示更新检查结果"""
-        # 不自动唤出主界面，只在需要下载时才显示
         if result.get("error"):
             messagebox.showerror("更新检查失败", f"无法检查更新:\n{result['error']}")
             return
-            
+
         if not result.get("has_update"):
             messagebox.showinfo("检查更新", f"当前已是最新版本 (v{APP_VERSION})！")
             return
-            
+
         latest_version = result.get("latest_version")
         download_url = result.get("download_url")
-        
+
         if not download_url:
             messagebox.showerror("发现新版本", f"发现新版本 v{latest_version}，但未找到对应的安装包下载链接。")
             return
-            
+
         msg = f"发现新版本: v{latest_version}\n\n是否立即下载并更新？"
         if messagebox.askyesno("发现更新", msg):
-            # 下载进度窗口需要父窗口可见，此时才打开主界面
             self._show_window()
             self._download_and_install_update(download_url)
-            
+
     def _download_and_install_update(self, url: str):
         """下载并安装更新"""
-        progress_win = tk.Toplevel(self)
+        progress_win = ctk.CTkToplevel(self)
         progress_win.title("下载更新")
         progress_win.geometry("400x150")
         progress_win.resizable(False, False)
         progress_win.transient(self)
         progress_win.grab_set()
         apply_window_icon(progress_win)
-        
+
         self.update_idletasks()
         x = self.winfo_x() + (self.winfo_width() - 400) // 2
         y = self.winfo_y() + (self.winfo_height() - 150) // 2
         progress_win.geometry(f"+{x}+{y}")
-        
-        lbl = ttk.Label(progress_win, text="正在下载最新版本，请稍候...", font=(ModernStyle.FONT_FAMILY, 11))
+
+        lbl = ctk.CTkLabel(progress_win, text="正在下载最新版本，请稍候...",
+                           font=(ModernStyle.FONT_FAMILY, 13))
         lbl.pack(pady=(25, 10))
-        
-        progress = ttk.Progressbar(progress_win, orient="horizontal", length=300, mode="determinate")
+
+        progress = ctk.CTkProgressBar(progress_win, width=300)
         progress.pack(pady=10)
-        
+        progress.set(0)
+
         def download_task():
             try:
                 temp_dir = tempfile.gettempdir()
                 setup_path = os.path.join(temp_dir, "QuickCli-Update-Setup.exe")
-                
+
                 req = urllib.request.Request(url, headers={'User-Agent': 'QuickCli-AutoUpdater'})
                 with urllib.request.urlopen(req, timeout=30) as response:
                     total_size = int(response.info().get('Content-Length', 0))
                     downloaded = 0
                     chunk_size = 8192
-                    
+
                     with open(setup_path, 'wb') as f:
                         while True:
                             chunk = response.read(chunk_size)
@@ -515,19 +522,19 @@ class QuickCliApp(tk.Tk):
                             f.write(chunk)
                             downloaded += len(chunk)
                             if total_size > 0:
-                                percent = min(int(downloaded * 100 / total_size), 100)
-                                self.after(0, lambda p=percent: progress.configure(value=p))
-                
+                                pct = min(downloaded / total_size, 1.0)
+                                self.after(0, lambda p=pct: progress.set(p))
+
                 self.after(0, lambda: self._execute_installer(setup_path, progress_win))
             except Exception as e:
                 self.after(0, lambda: self._on_download_error(progress_win, str(e)))
-                
+
         threading.Thread(target=download_task, daemon=True).start()
-        
+
     def _on_download_error(self, win, error_msg):
         win.destroy()
         messagebox.showerror("下载失败", f"更新包下载失败:\n{error_msg}")
-        
+
     def _execute_installer(self, setup_path, win):
         """执行安装包并退出当前程序"""
         win.destroy()
@@ -548,7 +555,6 @@ class QuickCliApp(tk.Tk):
         self.primary_command = cmd
         self.config["primary_command"] = cmd
         save_config(self.config)
-        # 重新生成菜单并通知 pystray 刷新显示
         self._refresh_tray_menu()
 
     def _quit_app(self):
@@ -558,299 +564,169 @@ class QuickCliApp(tk.Tk):
         self.quit()
         self.destroy()
         sys.exit(0)
-    
-    def _setup_styles(self):
-        """设置 ttk 样式"""
-        style = ttk.Style()
-        
-        # 使用 clam 主题作为基础
-        style.theme_use('clam')
-        
-        # 配置整体样式
-        style.configure('.',
-            background=ModernStyle.BG_COLOR,
-            foreground=ModernStyle.TEXT_COLOR,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL)
-        )
-        
-        # Frame 样式
-        style.configure('Card.TFrame',
-            background=ModernStyle.CARD_BG,
-            bordercolor=ModernStyle.BORDER_COLOR,
-            relief='flat'
-        )
-        
-        style.configure('TFrame',
-            background=ModernStyle.BG_COLOR
-        )
-        
-        # Label 样式
-        style.configure('Title.TLabel',
-            background=ModernStyle.BG_COLOR,
-            foreground=ModernStyle.TEXT_COLOR,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_TITLE, 'bold')
-        )
-        
-        style.configure('Header.TLabel',
-            background=ModernStyle.CARD_BG,
-            foreground=ModernStyle.TEXT_COLOR,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL, 'bold')
-        )
-        
-        style.configure('TLabel',
-            background=ModernStyle.BG_COLOR,
-            foreground=ModernStyle.TEXT_COLOR,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL)
-        )
-        
-        style.configure('Card.TLabel',
-            background=ModernStyle.CARD_BG,
-            foreground=ModernStyle.TEXT_COLOR,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL)
-        )
-        
-        # Entry 样式
-        style.configure('TEntry',
-            fieldbackground=ModernStyle.CARD_BG,
-            foreground=ModernStyle.TEXT_COLOR,
-            insertcolor=ModernStyle.TEXT_COLOR,
-            bordercolor=ModernStyle.BORDER_COLOR,
-            lightcolor=ModernStyle.PRIMARY_COLOR,
-            darkcolor=ModernStyle.BORDER_COLOR
-        )
-        
-        # Button 样式
-        style.configure('Accent.TButton',
-            background=ModernStyle.PRIMARY_COLOR,
-            foreground='#ffffff',
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL, 'bold'),
-            bordercolor=ModernStyle.PRIMARY_COLOR,
-            relief='flat',
-            padding=(20, 10)
-        )
-        
-        style.map('Accent.TButton',
-            background=[('active', ModernStyle.PRIMARY_HOVER)],
-            foreground=[('active', '#ffffff')]
-        )
-        
-        style.configure('Outline.TButton',
-            background=ModernStyle.BG_COLOR,
-            foreground=ModernStyle.TEXT_COLOR,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
-            bordercolor=ModernStyle.BORDER_COLOR,
-            relief='flat',
-            padding=(15, 8)
-        )
-        
-        style.map('Outline.TButton',
-            background=[('active', ModernStyle.CARD_BG)],
-            foreground=[('active', ModernStyle.TEXT_COLOR)]
-        )
 
-        style.configure('Dropdown.TMenubutton',
-            background="#f7fafc",
-            foreground=ModernStyle.TEXT_COLOR,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_COMBO),
-            bordercolor="#9fb3c8",
-            lightcolor="#9fb3c8",
-            darkcolor="#9fb3c8",
-            arrowcolor=ModernStyle.TEXT_COLOR,
-            relief='solid',
-            borderwidth=1,
-            padding=(12, 7)
-        )
-
-        style.map('Dropdown.TMenubutton',
-            background=[('active', '#eef4fb')],
-            foreground=[('active', ModernStyle.TEXT_COLOR)]
-        )
-        
-        # Combobox 样式 - 修复显示问题
-        style.configure('TCombobox',
-            fieldbackground=ModernStyle.CARD_BG,
-            background=ModernStyle.PRIMARY_COLOR,
-            foreground=ModernStyle.TEXT_COLOR,
-            arrowcolor=ModernStyle.TEXT_COLOR,
-            bordercolor=ModernStyle.BORDER_COLOR,
-            lightcolor=ModernStyle.PRIMARY_COLOR,
-            darkcolor=ModernStyle.BORDER_COLOR,
-            padding=(10, 7, 10, 7),
-            arrowsize=16
-        )
-        
-        style.map('TCombobox',
-            fieldbackground=[('readonly', ModernStyle.CARD_BG)],
-            selectbackground=[('readonly', ModernStyle.PRIMARY_COLOR)],
-            selectforeground=[('readonly', '#ffffff')],
-            foreground=[('readonly', ModernStyle.TEXT_COLOR)]
-        )
-        
-        # Scrollbar 样式
-        style.configure('TScrollbar',
-            background=ModernStyle.CARD_BG,
-            troughcolor=ModernStyle.BG_COLOR,
-            arrowcolor=ModernStyle.TEXT_COLOR,
-            bordercolor=ModernStyle.BORDER_COLOR
-        )
-
-        # 下拉框下拉列表字体
-        self.option_add(
-            '*TCombobox*Listbox.font',
-            f'{ModernStyle.FONT_FAMILY} {ModernStyle.FONT_SIZE_COMBO}'
-        )
-    
     def _create_ui(self):
         """创建用户界面"""
         # 主容器
-        main_frame = ttk.Frame(self, style='TFrame')
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
         main_frame.pack(fill='both', expand=True, padx=25, pady=25)
-        
-        # 标题
-        title_label = ttk.Label(
+
+        # 标题区域
+        title_label = ctk.CTkLabel(
             main_frame,
-            text="🚀 QuickCli",
-            style='Title.TLabel'
+            text="QuickCli",
+            font=(ModernStyle.FONT_FAMILY, 26, "bold"),
+            text_color=ModernStyle.TEXT_COLOR
         )
-        title_label.pack(pady=(0, 25))
-        
-        # === 目录选择区域 ===
-        dir_card = ttk.Frame(main_frame, style='Card.TFrame')
-        dir_card.pack(fill='x', pady=(0, 15))
-        
-        # 目录卡片内容
-        dir_content = ttk.Frame(dir_card, style='Card.TFrame')
-        dir_content.pack(fill='x', padx=15, pady=15)
-        
-        dir_label = ttk.Label(dir_content, text="📁 选择目录", style='Header.TLabel')
-        dir_label.pack(anchor='w', pady=(0, 10))
-        
-        dir_input_frame = ttk.Frame(dir_content, style='Card.TFrame')
+        title_label.pack(pady=(0, 4))
+
+        subtitle_label = ctk.CTkLabel(
+            main_frame,
+            text="Windows 快速命令行启动器",
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
+            text_color=ModernStyle.TEXT_SECONDARY
+        )
+        subtitle_label.pack(pady=(0, 20))
+
+        # === 目录选择卡片 ===
+        dir_card = ctk.CTkFrame(main_frame, corner_radius=10,
+                                fg_color=ModernStyle.CARD_BG,
+                                border_width=1, border_color=ModernStyle.BORDER_COLOR)
+        dir_card.pack(fill='x', pady=(0, 12))
+
+        dir_content = ctk.CTkFrame(dir_card, fg_color="transparent")
+        dir_content.pack(fill='x', padx=18, pady=16)
+
+        ctk.CTkLabel(dir_content, text="📁 选择目录",
+                     font=(ModernStyle.FONT_FAMILY, 14, "bold"),
+                     text_color=ModernStyle.TEXT_COLOR).pack(anchor='w', pady=(0, 10))
+
+        dir_input_frame = ctk.CTkFrame(dir_content, fg_color="transparent")
         dir_input_frame.pack(fill='x')
-        
-        self.dir_entry = ttk.Entry(dir_input_frame, font=(ModernStyle.FONT_FAMILY, 11))
+
+        self.dir_entry = ctk.CTkEntry(
+            dir_input_frame,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
+            corner_radius=8, height=38
+        )
         self.dir_entry.pack(side='left', fill='x', expand=True, padx=(0, 10))
         self.dir_entry.insert(0, normalize_windows_path(str(APP_DIR)))
-        
-        browse_btn = ttk.Button(
-            dir_input_frame,
-            text="浏览",
-            style='Outline.TButton',
+
+        ctk.CTkButton(
+            dir_input_frame, text="浏览", width=80,
+            corner_radius=8, height=38,
+            fg_color=ModernStyle.CARD_BG,
+            border_width=1, border_color=ModernStyle.BORDER_COLOR,
+            text_color=ModernStyle.TEXT_COLOR,
+            hover_color=ModernStyle.ACCENT_HOVER,
             command=self._browse_directory
-        )
-        browse_btn.pack(side='right')
-        
-        # === 命令选择区域 ===
-        cmd_card = ttk.Frame(main_frame, style='Card.TFrame')
-        cmd_card.pack(fill='x', pady=(0, 15))
-        
-        cmd_content = ttk.Frame(cmd_card, style='Card.TFrame')
-        cmd_content.pack(fill='x', padx=15, pady=15)
-        
-        cmd_label = ttk.Label(cmd_content, text="⚡ 选择命令", style='Header.TLabel')
-        cmd_label.pack(anchor='w', pady=(0, 10))
-        
-        cmd_input_frame = ttk.Frame(cmd_content, style='Card.TFrame')
+        ).pack(side='right')
+
+        # === 命令选择卡片 ===
+        cmd_card = ctk.CTkFrame(main_frame, corner_radius=10,
+                                fg_color=ModernStyle.CARD_BG,
+                                border_width=1, border_color=ModernStyle.BORDER_COLOR)
+        cmd_card.pack(fill='x', pady=(0, 12))
+
+        cmd_content = ctk.CTkFrame(cmd_card, fg_color="transparent")
+        cmd_content.pack(fill='x', padx=18, pady=16)
+
+        ctk.CTkLabel(cmd_content, text="⚡ 选择命令",
+                     font=(ModernStyle.FONT_FAMILY, 14, "bold"),
+                     text_color=ModernStyle.TEXT_COLOR).pack(anchor='w', pady=(0, 10))
+
+        cmd_input_frame = ctk.CTkFrame(cmd_content, fg_color="transparent")
         cmd_input_frame.pack(fill='x')
 
         # 命令下拉框
         self.cmd_var = tk.StringVar()
-        self.cmd_combo = self._create_command_dropdown(
+        available_commands = get_available_commands(self.config)
+        current_cmd = self.cmd_var.get().strip()
+        if current_cmd not in available_commands:
+            current_cmd = available_commands[0] if available_commands else ""
+        self.cmd_var.set(current_cmd)
+
+        self.cmd_option_menu = ctk.CTkOptionMenu(
             cmd_input_frame,
-            self.cmd_var,
-            [],
-            width=14
+            variable=self.cmd_var,
+            values=available_commands,
+            corner_radius=8, height=38, width=180,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_COMBO),
+            dropdown_font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_COMBO),
+            fg_color="#f7fafc",
+            button_color=ModernStyle.PRIMARY_COLOR,
+            button_hover_color=ModernStyle.PRIMARY_HOVER,
+            text_color=ModernStyle.TEXT_COLOR,
+            dropdown_fg_color=ModernStyle.CARD_BG,
+            dropdown_text_color=ModernStyle.TEXT_COLOR,
+            dropdown_hover_color=ModernStyle.ACCENT_HOVER
         )
-        self.cmd_combo.pack(side='left', padx=(0, 15))
-        self._sync_command_values()
-        
-        # 打开按钮
-        open_btn = ttk.Button(
-            cmd_input_frame,
-            text="▶ 打开终端",
-            style='Accent.TButton',
+        self.cmd_option_menu.pack(side='left', padx=(0, 15))
+
+        # 打开终端按钮（绿色）
+        ctk.CTkButton(
+            cmd_input_frame, text="▶ 打开终端",
+            corner_radius=8, height=38,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL, "bold"),
+            fg_color=ModernStyle.SUCCESS_COLOR,
+            hover_color=ModernStyle.SUCCESS_HOVER,
             command=self._open_terminal
-        )
-        open_btn.pack(side='left')
-        
+        ).pack(side='left')
+
         # === 历史记录区域 ===
-        history_card = ttk.Frame(main_frame, style='Card.TFrame')
-        history_card.pack(fill='both', expand=True, pady=(0, 15))
-        
-        history_header = ttk.Frame(history_card, style='Card.TFrame')
-        history_header.pack(fill='x', padx=15, pady=(15, 10))
-        
-        history_label = ttk.Label(history_header, text="📋 历史记录", style='Header.TLabel')
-        history_label.pack(side='left')
-        
-        clear_btn = ttk.Button(
-            history_header,
-            text="清空",
-            style='Outline.TButton',
+        history_section = ctk.CTkFrame(main_frame, fg_color="transparent")
+        history_section.pack(fill='both', expand=True, pady=(0, 12))
+
+        history_header = ctk.CTkFrame(history_section, fg_color="transparent")
+        history_header.pack(fill='x', pady=(0, 8))
+
+        ctk.CTkLabel(history_header, text="📋 历史记录",
+                     font=(ModernStyle.FONT_FAMILY, 14, "bold"),
+                     text_color=ModernStyle.TEXT_COLOR).pack(side='left')
+
+        ctk.CTkButton(
+            history_header, text="清空", width=60,
+            corner_radius=8, height=30,
+            fg_color=ModernStyle.CARD_BG,
+            border_width=1, border_color=ModernStyle.BORDER_COLOR,
+            text_color=ModernStyle.TEXT_SECONDARY,
+            hover_color=ModernStyle.ACCENT_HOVER,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
             command=self._clear_history
+        ).pack(side='right')
+
+        # 使用 CTkScrollableFrame 替代手动 Canvas+Scrollbar
+        self.history_scroll_frame = ctk.CTkScrollableFrame(
+            history_section,
+            corner_radius=10,
+            fg_color=ModernStyle.CARD_BG,
+            border_width=1, border_color=ModernStyle.BORDER_COLOR,
+            scrollbar_button_color=ModernStyle.BORDER_COLOR,
+            scrollbar_button_hover_color=ModernStyle.PRIMARY_COLOR
         )
-        clear_btn.pack(side='right')
-        
-        # 历史记录滚动区域
-        history_scroll_frame = ttk.Frame(history_card, style='Card.TFrame')
-        history_scroll_frame.pack(fill='both', expand=True, padx=15, pady=(0, 15))
-        
-        # 创建 Canvas 和 Scrollbar
-        self.history_canvas = tk.Canvas(
-            history_scroll_frame,
-            bg=ModernStyle.CARD_BG,
-            highlightthickness=0,
-            bd=0
-        )
-        self.history_scrollbar = tk.Scrollbar(
-            history_scroll_frame,
-            orient='vertical',
-            command=self.history_canvas.yview,
-            width=14,
-            relief='flat',
-            bd=0,
-            bg="#d6dde6",
-            activebackground=ModernStyle.PRIMARY_COLOR,
-            troughcolor="#edf2f7",
-            highlightthickness=0
-        )
-        
-        self.history_inner = ttk.Frame(self.history_canvas, style='Card.TFrame')
-        
-        self.history_canvas.configure(yscrollcommand=self.history_scrollbar.set)
-        
-        self.history_scrollbar.pack(side='right', fill='y')
-        self.history_canvas.pack(side='left', fill='both', expand=True)
-        
-        self.history_window = self.history_canvas.create_window(
-            (0, 0),
-            window=self.history_inner,
-            anchor='nw'
-        )
-        
-        # 绑定事件
-        self.history_inner.bind('<Configure>', self._on_frame_configure)
-        self.history_canvas.bind('<Configure>', self._on_canvas_configure)
-        
-        # === 设置按钮 ===
-        settings_btn = ttk.Button(
-            main_frame,
-            text="⚙ 设置",
-            style='Outline.TButton',
+        self.history_scroll_frame.pack(fill='both', expand=True)
+
+        # === 底部区域：设置 + 版本号 ===
+        bottom_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        bottom_frame.pack(fill='x', pady=(4, 0))
+
+        ctk.CTkButton(
+            bottom_frame, text="⚙ 设置",
+            corner_radius=8, height=36, width=100,
+            fg_color=ModernStyle.CARD_BG,
+            border_width=1, border_color=ModernStyle.BORDER_COLOR,
+            text_color=ModernStyle.TEXT_COLOR,
+            hover_color=ModernStyle.ACCENT_HOVER,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
             command=self._open_settings
-        )
-        settings_btn.pack(pady=(0, 10))
-    
-    def _on_frame_configure(self, event=None):
-        """更新滚动区域"""
-        self.history_canvas.configure(scrollregion=self.history_canvas.bbox('all'))
-        self._update_history_scrollbar()
-    
-    def _on_canvas_configure(self, event):
-        """调整内部框架宽度"""
-        self.history_canvas.itemconfig(self.history_window, width=event.width)
-        self._update_history_scrollbar()
-    
+        ).pack(side='left')
+
+        ctk.CTkLabel(
+            bottom_frame, text=f"v{APP_VERSION}",
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
+            text_color=ModernStyle.TEXT_MUTED
+        ).pack(side='right')
+
     def _center_window(self):
         """窗口居中"""
         self.update_idletasks()
@@ -859,33 +735,33 @@ class QuickCliApp(tk.Tk):
         x = (self.winfo_screenwidth() // 2) - (width // 2)
         y = (self.winfo_screenheight() // 2) - (height // 2)
         self.geometry(f'{width}x{height}+{x}+{y}')
-    
+
     def _browse_directory(self):
         """浏览选择目录"""
         directory = filedialog.askdirectory(title="选择目录")
         if directory:
             self.dir_entry.delete(0, "end")
             self.dir_entry.insert(0, normalize_windows_path(directory))
-    
+
     def _open_terminal(self, path: str = None, command: str = None):
         """打开终端并执行命令"""
         directory = normalize_windows_path(path or self.dir_entry.get().strip())
         cmd = command or self.cmd_var.get()
-        
+
         if not directory:
             messagebox.showwarning("提示", "请选择或输入目录路径")
             return
-        
+
         if not os.path.isdir(directory):
             messagebox.showerror("错误", "目录不存在，请检查路径")
             return
-        
+
         terminal_path = self.config.get("terminal_path", r"C:\Program Files\PowerShell\7\pwsh.exe")
-        
+
         if not os.path.isfile(terminal_path):
             messagebox.showerror("错误", f"终端程序不存在:\n{terminal_path}")
             return
-        
+
         try:
             # 启动终端
             subprocess.Popen(
@@ -893,35 +769,35 @@ class QuickCliApp(tk.Tk):
                 cwd=directory,
                 creationflags=subprocess.CREATE_NEW_CONSOLE
             )
-            
+
             # 添加到历史记录
             self._add_to_history(directory, cmd)
-            
+
         except Exception as e:
             messagebox.showerror("错误", f"打开终端失败:\n{e}")
-    
+
     def _add_to_history(self, path: str, command: str):
         """添加到历史记录"""
         path = normalize_windows_path(path)
         history = self.config.get("history", [])
-        
+
         # 移除已存在的相同路径记录
         history = [h for h in history if normalize_windows_path(h.get("path", "")) != path]
-        
+
         # 添加新记录到开头
         history.insert(0, {
             "path": path,
             "command": command,
             "time": datetime.now().isoformat()
         })
-        
+
         # 限制历史记录数量
         max_history = self.config.get("max_history", 20)
         history = history[:max_history]
-        
+
         self.config["history"] = history
         save_config(self.config)
-        
+
         # 刷新显示
         self._refresh_history()
 
@@ -931,40 +807,34 @@ class QuickCliApp(tk.Tk):
         selected = preferred_command or self.cmd_var.get().strip()
         if selected not in commands:
             selected = commands[0] if commands else ""
-        self._set_dropdown_values(self.cmd_combo, self.cmd_var, commands, selected)
+        self.cmd_option_menu.configure(values=commands)
+        self.cmd_var.set(selected)
 
     def _refresh_history(self):
         """刷新历史记录列表"""
         # 清空现有记录
-        for widget in self.history_inner.winfo_children():
+        for widget in self.history_scroll_frame.winfo_children():
             widget.destroy()
-        
+
         history = self.config.get("history", [])
-        
+
         if not history:
-            empty_label = ttk.Label(
-                self.history_inner,
+            empty_label = ctk.CTkLabel(
+                self.history_scroll_frame,
                 text="暂无历史记录",
-                foreground=ModernStyle.TEXT_SECONDARY,
-                background=ModernStyle.CARD_BG,
+                text_color=ModernStyle.TEXT_SECONDARY,
                 font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL)
             )
             empty_label.pack(pady=30)
-            self.history_canvas.yview_moveto(0)
-            self._update_history_scrollbar()
             # 历史记录清空时同步更新托盘菜单
             self._refresh_tray_menu()
             return
-        
+
         available_commands = get_available_commands(self.config)
 
         for item in history:
             self._create_history_item(item, available_commands)
 
-        self.history_inner.update_idletasks()
-        self.history_canvas.configure(scrollregion=self.history_canvas.bbox('all'))
-        self.history_canvas.yview_moveto(0)
-        self._update_history_scrollbar()
         # 历史记录变化时同步更新托盘菜单
         self._refresh_tray_menu()
 
@@ -975,98 +845,93 @@ class QuickCliApp(tk.Tk):
         item_commands = available_commands.copy()
         if saved_cmd and saved_cmd not in item_commands:
             item_commands.append(saved_cmd)
-        
+
         # 历史记录项容器
-        item_frame = tk.Frame(
-            self.history_inner,
-            bg=ModernStyle.ACCENT_COLOR,
-            bd=0,
-            highlightthickness=1,
-            highlightbackground=ModernStyle.BORDER_COLOR,
-            highlightcolor=ModernStyle.BORDER_COLOR
+        item_frame = ctk.CTkFrame(
+            self.history_scroll_frame,
+            fg_color=ModernStyle.ACCENT_COLOR,
+            corner_radius=8,
+            border_width=1,
+            border_color=ModernStyle.BORDER_COLOR
         )
-        item_frame.pack(fill='x', pady=4, ipady=8)
-        
+        item_frame.pack(fill='x', pady=4, padx=4)
+
         # 内部布局
-        inner_frame = tk.Frame(item_frame, bg=ModernStyle.ACCENT_COLOR)
-        inner_frame.pack(fill='x', padx=12, pady=4)
+        inner_frame = ctk.CTkFrame(item_frame, fg_color="transparent")
+        inner_frame.pack(fill='x', padx=12, pady=10)
         inner_frame.grid_columnconfigure(0, weight=1)
-        
+
         # 目录路径
-        path_label = tk.Label(
+        path_label = ctk.CTkLabel(
             inner_frame,
             text="",
             font=(ModernStyle.FONT_FAMILY, 12),
-            fg=ModernStyle.TEXT_COLOR,
-            bg=ModernStyle.ACCENT_COLOR,
+            text_color=ModernStyle.TEXT_COLOR,
             anchor='w'
         )
         path_label.grid(row=0, column=0, sticky='ew', padx=(0, 12))
+        # 使用 after_idle 延迟计算路径显示
+        self.after_idle(
+            lambda label=path_label, full_path=path: self._update_path_label(label, full_path)
+        )
+        # 绑定 Configure 事件以响应宽度变化
         path_label.bind(
             '<Configure>',
             lambda e, label=path_label, full_path=path: self._update_path_label(label, full_path)
         )
-        self.after_idle(
-            lambda label=path_label, full_path=path: self._update_path_label(label, full_path)
-        )
-        
+
         # 命令下拉框
         cmd_var = tk.StringVar(value=saved_cmd)
-        cmd_combo = self._create_command_dropdown(
+        cmd_option = ctk.CTkOptionMenu(
             inner_frame,
-            cmd_var,
-            item_commands,
-            width=10
+            variable=cmd_var,
+            values=item_commands,
+            corner_radius=6, height=32, width=130,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
+            dropdown_font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
+            fg_color="#f7fafc",
+            button_color=ModernStyle.PRIMARY_COLOR,
+            button_hover_color=ModernStyle.PRIMARY_HOVER,
+            text_color=ModernStyle.TEXT_COLOR,
+            dropdown_fg_color=ModernStyle.CARD_BG,
+            dropdown_text_color=ModernStyle.TEXT_COLOR,
+            dropdown_hover_color=ModernStyle.ACCENT_HOVER
         )
-        cmd_combo.grid(row=0, column=1, padx=(0, 8))
-        
-        # 打开按钮
+        cmd_option.grid(row=0, column=1, padx=(0, 8))
+
+        # 打开按钮（绿色）
         def make_open_handler(p, v):
             return lambda: self._open_terminal(p, v.get())
-        
-        open_btn = tk.Button(
-            inner_frame,
-            text="▶",
-            font=(ModernStyle.FONT_FAMILY, 11, 'bold'),
-            fg='#ffffff',
-            bg=ModernStyle.PRIMARY_COLOR,
-            activebackground=ModernStyle.PRIMARY_HOVER,
-            activeforeground='#ffffff',
-            bd=0,
-            padx=12,
-            pady=4,
-            cursor='hand2',
+
+        open_btn = ctk.CTkButton(
+            inner_frame, text="▶", width=40, height=32,
+            corner_radius=6,
+            font=(ModernStyle.FONT_FAMILY, 13, "bold"),
+            fg_color=ModernStyle.SUCCESS_COLOR,
+            hover_color=ModernStyle.SUCCESS_HOVER,
             command=make_open_handler(path, cmd_var)
         )
         open_btn.grid(row=0, column=2)
 
-        delete_btn = tk.Button(
-            inner_frame,
-            text="删除",
-            font=(ModernStyle.FONT_FAMILY, 10),
-            fg="#c62828",
-            bg=ModernStyle.CARD_BG,
-            activebackground="#ffcdd2",
-            activeforeground="#b71c1c",
-            bd=0,
-            padx=12,
-            pady=4,
-            cursor='hand2',
+        # 删除按钮
+        delete_btn = ctk.CTkButton(
+            inner_frame, text="✕", width=40, height=32,
+            corner_radius=6,
+            font=(ModernStyle.FONT_FAMILY, 13),
+            fg_color="transparent",
+            text_color=ModernStyle.DANGER_COLOR,
+            hover_color="#fee2e2",
             command=lambda p=path: self._delete_history_item(p)
         )
         delete_btn.grid(row=0, column=3, padx=(8, 0))
-        
+
         # 悬停效果
         def on_enter(e):
-            item_frame.configure(bg=ModernStyle.ACCENT_HOVER)
-            inner_frame.configure(bg=ModernStyle.ACCENT_HOVER)
-            path_label.configure(bg=ModernStyle.ACCENT_HOVER)
-        
+            item_frame.configure(fg_color=ModernStyle.ACCENT_HOVER)
+
         def on_leave(e):
-            item_frame.configure(bg=ModernStyle.ACCENT_COLOR)
-            inner_frame.configure(bg=ModernStyle.ACCENT_COLOR)
-            path_label.configure(bg=ModernStyle.ACCENT_COLOR)
-        
+            item_frame.configure(fg_color=ModernStyle.ACCENT_COLOR)
+
         item_frame.bind('<Enter>', on_enter)
         item_frame.bind('<Leave>', on_leave)
         inner_frame.bind('<Enter>', on_enter)
@@ -1074,34 +939,10 @@ class QuickCliApp(tk.Tk):
         path_label.bind('<Enter>', on_enter)
         path_label.bind('<Leave>', on_leave)
 
-    def _create_command_dropdown(self, parent, variable: tk.StringVar, values, width: int):
-        """创建命令下拉菜单"""
-        dropdown = ttk.OptionMenu(parent, variable, None)
-        dropdown.configure(style='Dropdown.TMenubutton', width=width)
-        dropdown.bind('<MouseWheel>', lambda e: 'break')
-        self._set_dropdown_values(dropdown, variable, values, variable.get().strip())
-        return dropdown
-
-    def _set_dropdown_values(self, dropdown, variable: tk.StringVar, values, selected: str = ""):
-        """更新下拉菜单选项"""
-        normalized_values = _dedupe_commands(values)
-        current = selected if selected in normalized_values else (normalized_values[0] if normalized_values else "")
-        variable.set(current)
-        dropdown.set_menu(current, *normalized_values)
-        menu = dropdown['menu']
-        menu.configure(
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_COMBO),
-            bg=ModernStyle.CARD_BG,
-            fg=ModernStyle.TEXT_COLOR,
-            activebackground=ModernStyle.ACCENT_HOVER,
-            activeforeground=ModernStyle.TEXT_COLOR,
-            bd=0
-        )
-
-    def _update_path_label(self, label: tk.Label, full_path: str):
+    def _update_path_label(self, label, full_path: str):
         """根据可用宽度优先展示路径右侧内容"""
         available_width = max(label.winfo_width() - 8, 40)
-        font = tkfont.Font(font=label.cget('font'))
+        font = tkfont.Font(family=ModernStyle.FONT_FAMILY, size=12)
         if font.measure(full_path) <= available_width:
             label.configure(text=full_path)
             return
@@ -1121,24 +962,6 @@ class QuickCliApp(tk.Tk):
 
         label.configure(text=ellipsis + shortened if shortened else full_path[-1:])
 
-    def _update_history_scrollbar(self):
-        """根据内容高度更新滚动条显示"""
-        bbox = self.history_canvas.bbox('all')
-        if not bbox:
-            return
-
-        content_height = bbox[3] - bbox[1]
-        canvas_height = self.history_canvas.winfo_height()
-        needs_scroll = content_height > canvas_height + 2
-
-        if needs_scroll:
-            if not self.history_scrollbar.winfo_ismapped():
-                self.history_scrollbar.pack(side='right', fill='y')
-        else:
-            self.history_canvas.yview_moveto(0)
-            if self.history_scrollbar.winfo_ismapped():
-                self.history_scrollbar.pack_forget()
-
     def _delete_history_item(self, path: str):
         """删除单条历史记录"""
         path = normalize_windows_path(path)
@@ -1149,38 +972,38 @@ class QuickCliApp(tk.Tk):
         ]
         save_config(self.config)
         self._refresh_history()
-    
+
     def _clear_history(self):
         """清空历史记录"""
         if messagebox.askyesno("确认", "确定要清空所有历史记录吗？"):
             self.config["history"] = []
             save_config(self.config)
             self._refresh_history()
-    
+
     def _open_settings(self):
         """打开设置窗口"""
         SettingsWindow(self)
 
 
-class SettingsWindow(tk.Toplevel):
+class SettingsWindow(ctk.CTkToplevel):
     """设置窗口"""
-    
+
     def __init__(self, parent):
         super().__init__(parent)
-        
+
         self.parent = parent
         self.config = normalize_config(parent.config.copy())
         self.command_order = get_available_commands(self.config)
         self.drag_index = None
-        
+
         self.title("设置")
         self.withdraw()
         self.resizable(False, False)
-        self.configure(bg=ModernStyle.BG_COLOR)
-        
+        self.configure(fg_color=ModernStyle.BG_COLOR)
+
         # 设置图标
         apply_window_icon(self)
-        
+
         # 模态窗口
         self.transient(parent)
         self.grab_set()
@@ -1190,87 +1013,108 @@ class SettingsWindow(tk.Toplevel):
         self.deiconify()
         self.lift()
         self.focus_force()
-    
+
     def _create_ui(self):
         """创建设置界面"""
         # 主容器
-        main_frame = ttk.Frame(self, style='TFrame')
+        main_frame = ctk.CTkFrame(self, fg_color="transparent")
         main_frame.pack(fill='both', expand=True, padx=25, pady=25)
-        
+
         # === 终端设置 ===
-        terminal_label = ttk.Label(
-            main_frame,
-            text="💻 终端设置",
-            style='Title.TLabel'
-        )
-        terminal_label.pack(anchor='w', pady=(0, 15))
-        
-        terminal_card = ttk.Frame(main_frame, style='Card.TFrame')
+        ctk.CTkLabel(
+            main_frame, text="💻 终端设置",
+            font=(ModernStyle.FONT_FAMILY, 20, "bold"),
+            text_color=ModernStyle.TEXT_COLOR
+        ).pack(anchor='w', pady=(0, 15))
+
+        terminal_card = ctk.CTkFrame(main_frame, corner_radius=10,
+                                     fg_color=ModernStyle.CARD_BG,
+                                     border_width=1, border_color=ModernStyle.BORDER_COLOR)
         terminal_card.pack(fill='x', pady=(0, 20))
-        
-        terminal_inner = ttk.Frame(terminal_card, style='Card.TFrame')
-        terminal_inner.pack(fill='x', padx=15, pady=15)
-        
-        ttk.Label(terminal_inner, text="终端路径:", style='Card.TLabel').pack(anchor='w')
-        
-        terminal_input_frame = ttk.Frame(terminal_inner, style='Card.TFrame')
+
+        terminal_inner = ctk.CTkFrame(terminal_card, fg_color="transparent")
+        terminal_inner.pack(fill='x', padx=18, pady=16)
+
+        ctk.CTkLabel(terminal_inner, text="终端路径:",
+                     font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
+                     text_color=ModernStyle.TEXT_COLOR).pack(anchor='w')
+
+        terminal_input_frame = ctk.CTkFrame(terminal_inner, fg_color="transparent")
         terminal_input_frame.pack(fill='x', pady=(8, 0))
-        
-        self.terminal_entry = ttk.Entry(terminal_input_frame, font=(ModernStyle.FONT_FAMILY, 11))
+
+        self.terminal_entry = ctk.CTkEntry(
+            terminal_input_frame,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
+            corner_radius=8, height=38
+        )
         self.terminal_entry.insert(0, self.config.get("terminal_path", ""))
         self.terminal_entry.pack(side='left', fill='x', expand=True, padx=(0, 10))
-        
-        ttk.Button(
-            terminal_input_frame,
-            text="浏览",
-            style='Outline.TButton',
+
+        ctk.CTkButton(
+            terminal_input_frame, text="浏览", width=80,
+            corner_radius=8, height=38,
+            fg_color=ModernStyle.CARD_BG,
+            border_width=1, border_color=ModernStyle.BORDER_COLOR,
+            text_color=ModernStyle.TEXT_COLOR,
+            hover_color=ModernStyle.ACCENT_HOVER,
             command=self._browse_terminal
         ).pack(side='right')
-        
+
         # === 命令设置 ===
-        cmd_label = ttk.Label(
-            main_frame,
-            text="📝 命令设置",
-            style='Title.TLabel'
-        )
-        cmd_label.pack(anchor='w', pady=(0, 15))
-        
-        cmd_card = ttk.Frame(main_frame, style='Card.TFrame')
+        ctk.CTkLabel(
+            main_frame, text="📝 命令设置",
+            font=(ModernStyle.FONT_FAMILY, 20, "bold"),
+            text_color=ModernStyle.TEXT_COLOR
+        ).pack(anchor='w', pady=(0, 15))
+
+        cmd_card = ctk.CTkFrame(main_frame, corner_radius=10,
+                                fg_color=ModernStyle.CARD_BG,
+                                border_width=1, border_color=ModernStyle.BORDER_COLOR)
         cmd_card.pack(fill='x', pady=(0, 20))
-        
-        cmd_inner = ttk.Frame(cmd_card, style='Card.TFrame')
-        cmd_inner.pack(fill='x', padx=15, pady=15)
-        
-        ttk.Label(
+
+        cmd_inner = ctk.CTkFrame(cmd_card, fg_color="transparent")
+        cmd_inner.pack(fill='x', padx=18, pady=16)
+
+        ctk.CTkLabel(
             cmd_inner,
             text="预设命令固定包含 claude / codex / iflow，自定义命令可新增、删除，并支持拖动排序。",
-            style='Card.TLabel'
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
+            text_color=ModernStyle.TEXT_COLOR,
+            wraplength=650
         ).pack(anchor='w')
 
-        add_frame = ttk.Frame(cmd_inner, style='Card.TFrame')
+        # 新增命令行
+        add_frame = ctk.CTkFrame(cmd_inner, fg_color="transparent")
         add_frame.pack(fill='x', pady=(12, 15))
 
-        self.custom_cmd_entry = ttk.Entry(
+        self.custom_cmd_entry = ctk.CTkEntry(
             add_frame,
-            font=(ModernStyle.FONT_FAMILY, 11)
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
+            corner_radius=8, height=38,
+            placeholder_text="输入新命令..."
         )
         self.custom_cmd_entry.pack(side='left', fill='x', expand=True, padx=(0, 10))
         self.custom_cmd_entry.bind('<Return>', self._add_custom_command)
 
-        ttk.Button(
-            add_frame,
-            text="新增命令",
-            style='Accent.TButton',
+        ctk.CTkButton(
+            add_frame, text="新增命令",
+            corner_radius=8, height=38,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL, "bold"),
+            fg_color=ModernStyle.PRIMARY_COLOR,
+            hover_color=ModernStyle.PRIMARY_HOVER,
             command=self._add_custom_command
         ).pack(side='right')
 
-        ttk.Label(
+        ctk.CTkLabel(
             cmd_inner,
             text="拖动下方列表可调整顺序，主界面和历史记录会按这个顺序显示。",
-            style='Card.TLabel'
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
+            text_color=ModernStyle.TEXT_COLOR,
+            wraplength=650
         ).pack(anchor='w')
 
-        list_frame = ttk.Frame(cmd_inner, style='Card.TFrame')
+        # 命令列表（保留 tk.Listbox，customtkinter 无原生列表控件）
+        list_frame = ctk.CTkFrame(cmd_inner, fg_color="transparent")
         list_frame.pack(fill='x', pady=(8, 10))
 
         self.command_listbox = tk.Listbox(
@@ -1278,7 +1122,7 @@ class SettingsWindow(tk.Toplevel):
             height=8,
             activestyle='none',
             selectmode='browse',
-            font=(ModernStyle.FONT_FAMILY, 12),
+            font=(ModernStyle.FONT_FAMILY, 13),
             bg=ModernStyle.CARD_BG,
             fg=ModernStyle.TEXT_COLOR,
             selectbackground=ModernStyle.PRIMARY_COLOR,
@@ -1294,71 +1138,87 @@ class SettingsWindow(tk.Toplevel):
         self.command_listbox.bind('<B1-Motion>', self._on_drag)
         self.command_listbox.bind('<ButtonRelease-1>', self._end_drag)
 
-        list_scrollbar = ttk.Scrollbar(
+        list_scrollbar = ctk.CTkScrollbar(
             list_frame,
-            orient='vertical',
-            command=self.command_listbox.yview
+            orientation='vertical',
+            command=self.command_listbox.yview,
+            button_color=ModernStyle.BORDER_COLOR,
+            button_hover_color=ModernStyle.PRIMARY_COLOR
         )
         list_scrollbar.pack(side='right', fill='y')
         self.command_listbox.configure(yscrollcommand=list_scrollbar.set)
 
-        action_frame = ttk.Frame(cmd_inner, style='Card.TFrame')
+        # 操作行
+        action_frame = ctk.CTkFrame(cmd_inner, fg_color="transparent")
         action_frame.pack(fill='x')
 
-        ttk.Label(
-            action_frame,
-            text="预设命令不可删除。",
-            style='Card.TLabel'
+        ctk.CTkLabel(
+            action_frame, text="预设命令不可删除。",
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
+            text_color=ModernStyle.TEXT_SECONDARY
         ).pack(side='left')
 
-        ttk.Button(
-            action_frame,
-            text="删除选中",
-            style='Outline.TButton',
+        ctk.CTkButton(
+            action_frame, text="删除选中", width=80,
+            corner_radius=8, height=32,
+            fg_color=ModernStyle.CARD_BG,
+            border_width=1, border_color=ModernStyle.BORDER_COLOR,
+            text_color=ModernStyle.DANGER_COLOR,
+            hover_color="#fee2e2",
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
             command=self._delete_selected_command
         ).pack(side='right')
 
         self._refresh_command_listbox()
-        
+
         # === 按钮区域 ===
-        btn_frame = ttk.Frame(main_frame, style='TFrame')
+        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         btn_frame.pack(fill='x', pady=(20, 0))
-        
+
         # 左侧：检查更新和版本号
-        left_btn_frame = ttk.Frame(btn_frame, style='TFrame')
+        left_btn_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
         left_btn_frame.pack(side='left')
-        
-        ttk.Button(
-            left_btn_frame,
-            text="检查更新",
-            style='Outline.TButton',
+
+        ctk.CTkButton(
+            left_btn_frame, text="检查更新", width=90,
+            corner_radius=8, height=36,
+            fg_color=ModernStyle.CARD_BG,
+            border_width=1, border_color=ModernStyle.BORDER_COLOR,
+            text_color=ModernStyle.TEXT_COLOR,
+            hover_color=ModernStyle.ACCENT_HOVER,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
             command=self.parent._on_check_update_clicked
         ).pack(side='left')
-        
-        ttk.Label(
-            left_btn_frame,
-            text=f"v{APP_VERSION}",
-            foreground=ModernStyle.TEXT_SECONDARY,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL)
+
+        ctk.CTkLabel(
+            left_btn_frame, text=f"v{APP_VERSION}",
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
+            text_color=ModernStyle.TEXT_SECONDARY
         ).pack(side='left', padx=(10, 0))
-        
+
         # 右侧：保存取消
-        right_btn_frame = ttk.Frame(btn_frame, style='TFrame')
+        right_btn_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
         right_btn_frame.pack(side='right')
-        
-        ttk.Button(
-            right_btn_frame,
-            text="保存",
-            style='Accent.TButton',
-            command=self._save
-        ).pack(side='right', padx=(10, 0))
-        
-        ttk.Button(
-            right_btn_frame,
-            text="取消",
-            style='Outline.TButton',
+
+        ctk.CTkButton(
+            right_btn_frame, text="取消", width=80,
+            corner_radius=8, height=36,
+            fg_color=ModernStyle.CARD_BG,
+            border_width=1, border_color=ModernStyle.BORDER_COLOR,
+            text_color=ModernStyle.TEXT_COLOR,
+            hover_color=ModernStyle.ACCENT_HOVER,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
             command=self.destroy
         ).pack(side='right')
+
+        ctk.CTkButton(
+            right_btn_frame, text="保存", width=80,
+            corner_radius=8, height=36,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL, "bold"),
+            fg_color=ModernStyle.PRIMARY_COLOR,
+            hover_color=ModernStyle.PRIMARY_HOVER,
+            command=self._save
+        ).pack(side='right', padx=(0, 10))
 
     def _center_on_parent(self):
         """相对父窗口居中显示"""
@@ -1436,7 +1296,7 @@ class SettingsWindow(tk.Toplevel):
     def _end_drag(self, event=None):
         """结束拖动排序"""
         self.drag_index = None
-    
+
     def _browse_terminal(self):
         """浏览选择终端程序"""
         file_path = filedialog.askopenfilename(
@@ -1446,7 +1306,7 @@ class SettingsWindow(tk.Toplevel):
         if file_path:
             self.terminal_entry.delete(0, "end")
             self.terminal_entry.insert(0, file_path)
-    
+
     def _save(self):
         """保存设置"""
         self.config["terminal_path"] = self.terminal_entry.get().strip()

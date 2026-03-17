@@ -1,170 +1,108 @@
-# QuickCli
+<p align="center">
+  <img src="logo.png" width="120" alt="QuickCli Logo" />
+</p>
 
-<img src="logo.png" width="120" alt="QuickCli Logo" />
+<h1 align="center">QuickCli</h1>
 
-QuickCli 是一个面向 Windows 的轻量级命令行启动器，使用 `tkinter` 构建，无需额外第三方依赖。
+<p align="center">
+  Windows 轻量级命令行启动器 · 在常用项目目录间快速切换并打开终端
+</p>
 
-它的目标很简单：在常用项目目录之间快速切换，并直接用指定命令打开新的终端窗口，减少重复输入 `cd` 和启动命令的操作。
+---
+
+## 快速开始
+
+### 安装版（推荐）
+
+1. 前往 [Releases](https://github.com/CrazyFigure/QuickCli/releases) 下载最新 `QuickCli-Setup.exe`
+2. 运行安装程序，完成后从开始菜单或桌面启动
+3. 选择目录 → 选择命令 → 点击 **▶ 打开终端**
+
+### 便携版
+
+下载 `QuickCli.exe`，双击即可运行，无需安装。
+
+### 开发模式
+
+```powershell
+pip install -r requirements.txt
+python main.py
+```
 
 ## 功能
 
-- 选择本地目录并打开终端
-- 内置预设命令：`claude`、`codex`、`iflow`
-- 支持添加多个自定义命令
-- 支持在设置中拖动调整命令顺序
-- 自动保存历史记录
-- 历史记录支持单条删除和一键清空
-- 设置和历史记录持久化到本地配置文件
-- **Windows 系统托盘图标**：支持最小化到托盘，右键菜单快速切换主命令和打开历史目录
-
-## 适用场景
-
-- 经常在多个项目目录之间切换
-- 需要频繁打开 `claude` / `codex` / `iflow` 之类的命令行工具
-- 希望给非命令行重度用户一个更直观的启动入口
-
-## 运行环境
-
-- Windows
-- Python 3
-- 建议安装 PowerShell 7
-
-默认终端路径为：
-
-```text
-C:\Program Files\PowerShell\7\pwsh.exe
-```
-
-如果你的终端路径不同，可以在设置窗口中修改。
-
-## 启动方式
-
-### 方式一：直接运行 Python
-
-```powershell
-python .\main.py
-```
-
-### 方式二：双击批处理
-
-直接运行项目中的 `QuickCli.bat`。
+- **目录快速切换** — 选择本地目录并一键打开终端
+- **多命令支持** — 内置预设命令 `claude` / `codex` / `iflow`，可自由添加自定义命令
+- **历史记录** — 自动记录使用过的目录和命令组合，支持单条删除和一键清空
+- **命令排序** — 设置中拖动调整命令显示顺序
+- **系统托盘** — 最小化到托盘，右键菜单快速切换主命令和打开历史目录
+- **自动更新** — 支持检查 GitHub Release 新版本并一键更新
+- **现代化 UI** — 基于 customtkinter 构建，圆角卡片 + 柔和配色
 
 ## 使用方法
 
-1. 在主界面选择或输入一个目录。
-2. 在“选择命令”中选中要执行的命令。
-3. 点击“打开终端”。
-4. 程序会在该目录下打开一个新的终端窗口，并执行对应命令。
+1. 在主界面选择或输入一个目录
+2. 在「选择命令」中选中要执行的命令
+3. 点击 **▶ 打开终端**
+4. 程序会在该目录下打开一个新的终端窗口并执行对应命令
 
-历史记录区域可以直接复用之前的目录和命令组合：
+**历史记录**
 
-- 点击右侧命令下拉框可以切换命令
-- 点击 `▶` 可以再次打开终端
-- 点击“删除”可以删除单条记录
-- 点击“清空”可以删除全部历史记录
+- 点击命令下拉框可以切换命令
+- 点击 **▶** 可以再次打开终端
+- 点击 **✕** 删除单条记录
+- 点击「清空」删除全部历史记录
 
 ## 设置说明
 
-点击主界面底部“设置”按钮后，可以配置：
+点击主界面底部「设置」按钮可配置：
 
-- 终端程序路径
-- 自定义命令
-- 命令显示顺序
+- **终端程序路径** — 默认为 `C:\Program Files\PowerShell\7\pwsh.exe`
+- **自定义命令** — 可新增任意数量的命令
+- **命令显示顺序** — 拖动排序，主界面和历史记录都会按此顺序显示
 
-说明：
-
-- `claude`、`codex`、`iflow` 为固定预设命令，不能删除
-- 可以新增任意数量的自定义命令
-- 可以通过拖动排序调整命令顺序
-- 主界面和历史记录中的命令列表都会按该顺序显示
+> 预设命令 `claude` / `codex` / `iflow` 不可删除。
 
 ## 配置文件
 
-程序会在项目根目录读取并保存配置：
+| 模式 | 路径 |
+|------|------|
+| 开发模式 | 项目根目录 `settings.json` |
+| 安装版 / exe | `%APPDATA%\QuickCli\settings.json` |
 
-```text
-settings.json
-```
+主要字段：`terminal_path`、`custom_commands`、`command_order`、`primary_command`、`history`、`max_history`
 
-主要字段包括：
+## 运行环境
 
-- `terminal_path`：终端程序路径
-- `custom_commands`：自定义命令列表
-- `command_order`：命令显示顺序
-- `history`：历史记录
-- `max_history`：历史记录最大数量
+- Windows 10 / 11
+- Python 3.8+（仅开发模式需要）
+- 建议安装 PowerShell 7
 
-打包为 `exe` 后，配置文件会自动改为写入当前用户目录：
+## 打包构建
 
-```text
-%APPDATA%\QuickCli\settings.json
-```
-
-这样可以避免安装到 `Program Files` 后因为目录不可写导致设置保存失败。
-
-## 应用元数据
-
-应用版本、发布者、稳定的 Windows `AppUserModelID`、可执行文件名等构建元数据统一维护在：
-
-```text
-app_metadata.json
-```
-
-如果后续需要升级版本，优先只改这一个文件。
-
-## 打包 Windows 可执行文件
-
-本项目可以直接打包为 Windows 单文件 `exe`，不需要 Visual Studio。
-
-### 本地构建便携版 exe
+### 本地构建便携版
 
 ```powershell
-python -m pip install pyinstaller
+pip install -r requirements.txt
+pip install pyinstaller
 python -m PyInstaller .\QuickCli.spec --noconfirm --clean
 ```
 
-如果你的环境没有 `python` 命令，也可以改用 `py`：
+输出：`dist\QuickCli.exe`
 
-```powershell
-py -m pip install pyinstaller
-py -m PyInstaller .\QuickCli.spec --noconfirm --clean
-```
+### 本地构建安装版
 
-输出文件：
-
-```text
-dist\QuickCli.exe
-```
-
-### 本地构建安装版 exe
-
-如果已经安装 Inno Setup 6，可以直接执行：
+需先安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php)：
 
 ```powershell
 .\build.ps1 -Installer
 ```
 
-输出文件：
+输出：`output\QuickCli-Setup.exe`
 
-```text
-output\QuickCli-Setup.exe
-```
+### GitHub Actions 自动构建
 
-## GitHub Actions 自动构建
-
-仓库已提供工作流：
-
-```text
-.github/workflows/windows-build.yml
-```
-
-触发方式：
-
-- 推送到 `main`
-- 推送到 `feat/**` 分支
-- 在 GitHub Actions 页面手动执行 `workflow_dispatch`
-
-工作流会自动生成两类构建产物：
+推送 `v*` tag 后自动触发 `.github/workflows/windows-build.yml`，生成 Release 产物：
 
 - `QuickCli-portable-exe`
 - `QuickCli-setup-exe`
@@ -181,14 +119,17 @@ QuickCli/
 ├─ QuickCli.spec
 ├─ build.ps1
 ├─ main.py
-├─ settings.json
-├─ QuickCli.bat
+├─ requirements.txt
+├─ app_metadata.json
 ├─ icon.ico
+├─ logo.png
 └─ README.md
 ```
 
-## 说明
+## 应用元数据
 
-- 路径显示统一使用 Windows 风格反斜杠
-- 历史记录和设置会保存在本地，不依赖网络服务
-- 本项目当前为桌面小工具形态，适合个人或小团队内部使用
+版本、发布者、`AppUserModelID` 等构建元数据统一维护在 `app_metadata.json`，升级版本只需修改此文件。
+
+## 许可
+
+MIT
