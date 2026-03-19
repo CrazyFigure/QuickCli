@@ -12,11 +12,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
-# 仅精确剔除已失效的 PyInstaller 环境变量
-for _env_key in ["TCL_LIBRARY", "TK_LIBRARY"]:
-    _val = os.environ.get(_env_key, "")
-    if "_MEI" in _val:
-        os.environ.pop(_env_key, None)
+# 删除了剔除 TCL_LIBRARY 和 TK_LIBRARY 的逻辑，因为它会导致 PyInstaller 打包后的程序崩溃。
 
 import subprocess
 from typing import List, Optional
@@ -341,22 +337,24 @@ class QuickCliApp(ctk.CTk):
         self._create_ui()
         self._refresh_history()
 
-        # 先设为透明，再解除隐藏。这样系统就会为主窗口分配真正的物理分辨率和坐标，
-        # 且由于透明所以不会产生那“一块块刷新”的粗糙视觉
+        # 先设为透明，再解除隐藏。此时系统开始为其分配真正的物理大小。
         self.wm_attributes("-alpha", 0)
         self.deiconify()
         
-        # 让系统有 50 毫秒的时间完成真正的尺寸换算，随后计算完美的物理坐标并解除透明
-        self.after(50, self._initial_center_and_show)
+        # 强制更新重绘。由于此时处于 alpha=0 状态，界面在后台被完全分配好确切的坐标和缩放尺寸，同时用户视觉上完全看不到。
+        self.update()
+
+        # 现在获取到的 100% 是物理放大后的精确宽高，瞬间计算中心
+        self._center_window_sync()
+        
+        # 将透明度恢复为 1.0 (不透明)，并提到最顶层
+        self.wm_attributes("-alpha", 1.0)
+        self.lift()
+        self.focus_force()
+
         self.after(200, self._setup_tray)
 
         self.protocol("WM_DELETE_WINDOW", self._hide_window)
-
-    def _initial_center_and_show(self):
-        """完全成熟后的首次精准居中与实装呈现"""
-        self._center_window_sync()
-        self.wm_attributes("-alpha", 1)
-        self.focus_force()
 
     def _center_window_sync(self):
         """完全同步对齐屏幕中心（使用 Tcl 原生物理坐标）"""
@@ -385,7 +383,7 @@ class QuickCliApp(ctk.CTk):
         self.deiconify()
         self._center_window_sync()
         self.lift()
-        self.after(20, lambda: self.wm_attributes("-alpha", 1))
+        self.after(20, lambda: self.wm_attributes("-alpha", 1.0))
         self.after(20, self.focus_force)
 
     def _setup_tray(self):
@@ -438,6 +436,7 @@ class QuickCliApp(ctk.CTk):
             menu_items.append(MenuItem("  暂无历史目录", lambda: None, enabled=False))
         else:
             # 只显示最近 10 条历史记录以保持菜单长度合理
+            # 删除了剔除 TCL_LIBRARY 和 TK_LIBRARY 的逻辑，因为它会导致 PyInstaller 打包后的程序崩溃。
             for item in history[:10]:
                 path = item.get("path", "")
                 if not path:
@@ -787,10 +786,18 @@ class QuickCliApp(ctk.CTk):
             return
 
         try:
+            # 从传递给终端的环境变量中剥离当前 PyInstaller 的 TCL/TK 库变量
+            # 防止打开终端后，终端里执行的其他含界面的 Python 工具发生崩溃
+            sub_env = os.environ.copy()
+            for key in ["TCL_LIBRARY", "TK_LIBRARY"]:
+                if "_MEI" in sub_env.get(key, ""):
+                    sub_env.pop(key, None)
+
             # 启动终端
             subprocess.Popen(
                 [terminal_path, "-NoExit", "-Command", f"cd '{directory}'; {cmd}"],
                 cwd=directory,
+                env=sub_env,
                 creationflags=subprocess.CREATE_NEW_CONSOLE
             )
 
