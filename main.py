@@ -7,10 +7,18 @@ QuickCli - Windows 快速命令行启动器
 
 import json
 import os
-import subprocess
 import sys
+import traceback
 from datetime import datetime
 from pathlib import Path
+
+# 仅精确剔除已失效的 PyInstaller 环境变量
+for _env_key in ["TCL_LIBRARY", "TK_LIBRARY"]:
+    _val = os.environ.get(_env_key, "")
+    if "_MEI" in _val:
+        os.environ.pop(_env_key, None)
+
+import subprocess
 from typing import List, Optional
 import threading
 import urllib.request
@@ -19,12 +27,11 @@ import tempfile
 from PIL import Image
 from pystray import Icon, Menu, MenuItem
 
-# 新增 customtkinter
-import customtkinter as ctk
-
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import filedialog, messagebox
+
+import customtkinter as ctk
 
 METADATA_FILE = "app_metadata.json"
 
@@ -143,23 +150,6 @@ def apply_window_icon(window):
     except Exception:
         pass
 
-    try:
-        window.update_idletasks()
-        hwnd = window.winfo_id()
-        hicon = ctypes.windll.user32.LoadImageW(
-            0,
-            str(ICON_FILE),
-            IMAGE_ICON,
-            0,
-            0,
-            LR_LOADFROMFILE | LR_DEFAULTSIZE
-        )
-        if hicon:
-            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, hicon)
-            ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, hicon)
-    except Exception:
-        pass
-
 
 def _dedupe_commands(commands) -> List[str]:
     """去重并清理命令列表"""
@@ -268,6 +258,7 @@ class ModernStyle:
     SUCCESS_COLOR = "#059669"      # 绿色（打开终端）
     SUCCESS_HOVER = "#047857"
     DANGER_COLOR = "#dc2626"       # 红色（删除）
+    DANGER_HOVER = "#b91c1c"
     TEXT_COLOR = "#1e293b"         # 蓝灰深色
     TEXT_SECONDARY = "#475569"     # 加深辅助色，提升可读性
     TEXT_MUTED = "#64748b"         # 加深更淡辅助色
@@ -333,46 +324,66 @@ class QuickCliApp(ctk.CTk):
 
     def __init__(self):
         super().__init__()
+        
+        # 初始时立即隐藏窗口，阻止加载 UI 碎片时的屏幕闪动
+        self.withdraw()
 
-        # 加载配置
         self.config = load_config()
         self.primary_command = self.config.get("primary_command", "codex")
-
-        # 托盘图标实例
         self.tray_icon = None
 
-        # 设置窗口
         self.title(APP_NAME)
         self.geometry("680x780")
         self.minsize(580, 680)
         self.configure(fg_color=ModernStyle.BG_COLOR)
 
-        # 设置图标
         apply_window_icon(self)
-
-        # 创建 UI
         self._create_ui()
-
-        # 刷新历史记录列表
         self._refresh_history()
 
-        # 居中窗口
-        self._center_window()
+        # 先设为透明，再解除隐藏。这样系统就会为主窗口分配真正的物理分辨率和坐标，
+        # 且由于透明所以不会产生那“一块块刷新”的粗糙视觉
+        self.wm_attributes("-alpha", 0)
+        self.deiconify()
+        
+        # 让系统有 50 毫秒的时间完成真正的尺寸换算，随后计算完美的物理坐标并解除透明
+        self.after(50, self._initial_center_and_show)
+        self.after(200, self._setup_tray)
 
-        # 设置托盘图标
-        self._setup_tray()
-
-        # 关闭窗口时隐藏而非退出
         self.protocol("WM_DELETE_WINDOW", self._hide_window)
+
+    def _initial_center_and_show(self):
+        """完全成熟后的首次精准居中与实装呈现"""
+        self._center_window_sync()
+        self.wm_attributes("-alpha", 1)
+        self.focus_force()
+
+    def _center_window_sync(self):
+        """完全同步对齐屏幕中心（使用 Tcl 原生物理坐标）"""
+        self.update_idletasks()
+        
+        raw_geo = str(self.tk.call('wm', 'geometry', self._w))
+        # 提取真实物理像素大小
+        parts = raw_geo.split('+')[0].split('x')
+        if len(parts) == 2:
+            phys_w, phys_h = int(parts[0]), int(parts[1])
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            
+            x = max(0, (sw - phys_w) // 2)
+            y = max(0, (sh - phys_h) // 2 - 40) # 视觉重心稍稍偏上一丁点
+            
+            self.tk.call('wm', 'geometry', self._w, f'+{x}+{y}')
 
     def _hide_window(self):
         """隐藏主窗口"""
         self.withdraw()
 
     def _show_window(self):
-        """显示主窗口（alpha 淡入避免黑闪）"""
+        """显示主窗口（平滑呼出）"""
         self.wm_attributes("-alpha", 0)
         self.deiconify()
+        self._center_window_sync()
         self.lift()
         self.after(20, lambda: self.wm_attributes("-alpha", 1))
         self.after(20, self.focus_force)
@@ -390,10 +401,9 @@ class QuickCliApp(ctk.CTk):
                 APP_NAME,
                 menu=self._build_tray_menu()
             )
-            # run_detached() 内部会自己管理线程，无需手动创建线程
             self.tray_icon.run_detached()
-        except Exception as e:
-            print(f"初始化托盘失败: {e}")
+        except Exception:
+            pass
 
     def _build_tray_menu(self):
         """构建托盘右键菜单 - 平级分块展示"""
@@ -601,7 +611,7 @@ class QuickCliApp(ctk.CTk):
         dir_content.pack(fill='x', padx=18, pady=16)
 
         ctk.CTkLabel(dir_content, text="📁 选择目录",
-                     font=(ModernStyle.FONT_FAMILY, 14, "bold"),
+                     font=(ModernStyle.FONT_FAMILY, 15, "bold"),
                      text_color=ModernStyle.TEXT_COLOR).pack(anchor='w', pady=(0, 10))
 
         dir_input_frame = ctk.CTkFrame(dir_content, fg_color="transparent")
@@ -609,15 +619,16 @@ class QuickCliApp(ctk.CTk):
 
         self.dir_entry = ctk.CTkEntry(
             dir_input_frame,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
-            corner_radius=8, height=38
+            font=(ModernStyle.FONT_FAMILY, 14),
+            corner_radius=8, height=40
         )
         self.dir_entry.pack(side='left', fill='x', expand=True, padx=(0, 10))
         self.dir_entry.insert(0, normalize_windows_path(str(APP_DIR)))
 
         ctk.CTkButton(
             dir_input_frame, text="浏览", width=80,
-            corner_radius=8, height=38,
+            corner_radius=8, height=40,
+            font=(ModernStyle.FONT_FAMILY, 14),
             fg_color=ModernStyle.GHOST_BTN_BG,
             border_width=1, border_color=ModernStyle.BORDER_COLOR,
             text_color=ModernStyle.TEXT_COLOR,
@@ -635,7 +646,7 @@ class QuickCliApp(ctk.CTk):
         cmd_content.pack(fill='x', padx=18, pady=16)
 
         ctk.CTkLabel(cmd_content, text="⚡ 选择命令",
-                     font=(ModernStyle.FONT_FAMILY, 14, "bold"),
+                     font=(ModernStyle.FONT_FAMILY, 15, "bold"),
                      text_color=ModernStyle.TEXT_COLOR).pack(anchor='w', pady=(0, 10))
 
         cmd_input_frame = ctk.CTkFrame(cmd_content, fg_color="transparent")
@@ -653,9 +664,9 @@ class QuickCliApp(ctk.CTk):
             cmd_input_frame,
             variable=self.cmd_var,
             values=available_commands,
-            corner_radius=8, height=38, width=180,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_COMBO),
-            dropdown_font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_COMBO),
+            corner_radius=8, height=40, width=180,
+            font=(ModernStyle.FONT_FAMILY, 14),
+            dropdown_font=(ModernStyle.FONT_FAMILY, 14),
             fg_color=ModernStyle.GHOST_BTN_BG,
             button_color=ModernStyle.BORDER_COLOR,
             button_hover_color=ModernStyle.TEXT_SECONDARY,
@@ -669,8 +680,8 @@ class QuickCliApp(ctk.CTk):
         # 打开终端按钮（绿色）
         ctk.CTkButton(
             cmd_input_frame, text="▶ 打开终端",
-            corner_radius=8, height=38,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL, "bold"),
+            corner_radius=8, height=40,
+            font=(ModernStyle.FONT_FAMILY, 14, "bold"),
             fg_color=ModernStyle.SUCCESS_COLOR,
             hover_color=ModernStyle.SUCCESS_HOVER,
             command=self._open_terminal
@@ -731,19 +742,23 @@ class QuickCliApp(ctk.CTk):
         ).pack(side='right')
 
     def _center_window(self):
-        """窗口居中（从 geometry 字符串解析尺寸，CTk 下 winfo_width 不可靠）"""
+        """窗口居中（绝对尺寸数学推导法，杜绝隐藏状态下的假尺寸误导）"""
         self.update_idletasks()
-        geo = self.geometry()
-        # geometry 格式：WxH+X+Y 或 WxH
-        size_part = geo.split('+')[0]
-        if 'x' in size_part:
-            width, height = [int(v) for v in size_part.split('x')]
-        else:
-            width = self.winfo_width()
-            height = self.winfo_height()
-        x = (self.winfo_screenwidth() // 2) - (width // 2)
-        y = (self.winfo_screenheight() // 2) - (height // 2)
-        self.geometry(f'{width}x{height}+{x}+{y}')
+        
+        # 核心秘密：在 window 被 withdraw() 或完全加载出屏幕前，
+        # 系统赋予的宽度不是 680x780，而是默认启动尺寸（如 200x200）。
+        # 这就是为什么只要用了底层级联的推算或者内置居中，全都会基于 200x200 去居中，
+        # 等真正展开成 680x780 时，窗口的拓展方向是向下向右的，所以就会看起来“偏右下”！
+        
+        width = 680
+        height = 780
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        
+        x = int(max(0, (screen_width / 2) - (width / 2)))
+        y = int(max(0, (screen_height / 2) - (height / 2) - 40))  # 稍微向上提一点视觉中心
+        
+        self.geometry(f"{width}x{height}+{x}+{y}")
 
     def _browse_directory(self):
         """浏览选择目录"""
@@ -838,22 +853,19 @@ class QuickCliApp(ctk.CTk):
                 font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL)
             )
             empty_label.pack(pady=30)
-            # 重新显示
             self.history_scroll_frame.pack(fill='both', expand=True)
-            # 历史记录清空时同步更新托盘菜单
             self._refresh_tray_menu()
             return
 
         available_commands = get_available_commands(self.config)
 
-        for item in history:
+        for idx, item in enumerate(history):
             self._create_history_item(item, available_commands)
 
-        # 重新显示
         self.history_scroll_frame.pack(fill='both', expand=True)
 
-        # 历史记录变化时同步更新托盘菜单
         self._refresh_tray_menu()
+
 
     def _create_history_item(self, item: dict, available_commands: list):
         """创建历史记录项"""
@@ -882,19 +894,14 @@ class QuickCliApp(ctk.CTk):
         path_label = ctk.CTkLabel(
             inner_frame,
             text="",
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
+            font=(ModernStyle.FONT_FAMILY, 14),
             text_color=ModernStyle.TEXT_COLOR,
             anchor='w'
         )
         path_label.grid(row=0, column=0, sticky='ew', padx=(0, 12))
-        # 使用 after_idle 延迟计算路径显示
+        # 使用 after_idle 延迟计算一次路径显示即可，不要绑定 Configure 防止组件进入由于大小改变引起的无限重绘死锁
         self.after_idle(
             lambda label=path_label, full_path=path: self._update_path_label(label, full_path)
-        )
-        # 绑定 Configure 事件以响应宽度变化
-        path_label.bind(
-            '<Configure>',
-            lambda e, label=path_label, full_path=path: self._update_path_label(label, full_path)
         )
 
         # 命令下拉框
@@ -903,9 +910,9 @@ class QuickCliApp(ctk.CTk):
             inner_frame,
             variable=cmd_var,
             values=item_commands,
-            corner_radius=6, height=32, width=130,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
-            dropdown_font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
+            corner_radius=6, height=34, width=130,
+            font=(ModernStyle.FONT_FAMILY, 13),
+            dropdown_font=(ModernStyle.FONT_FAMILY, 13),
             fg_color=ModernStyle.GHOST_BTN_BG,
             button_color=ModernStyle.BORDER_COLOR,
             button_hover_color=ModernStyle.TEXT_SECONDARY,
@@ -921,9 +928,9 @@ class QuickCliApp(ctk.CTk):
             return lambda: self._open_terminal(p, v.get())
 
         open_btn = ctk.CTkButton(
-            inner_frame, text="▶", width=40, height=32,
+            inner_frame, text="▶", width=40, height=34,
             corner_radius=6,
-            font=(ModernStyle.FONT_FAMILY, 13, "bold"),
+            font=(ModernStyle.FONT_FAMILY, 14, "bold"),
             fg_color=ModernStyle.SUCCESS_COLOR,
             hover_color=ModernStyle.SUCCESS_HOVER,
             command=make_open_handler(path, cmd_var)
@@ -932,9 +939,9 @@ class QuickCliApp(ctk.CTk):
 
         # 删除按钮
         delete_btn = ctk.CTkButton(
-            inner_frame, text="✕", width=40, height=32,
+            inner_frame, text="✕", width=40, height=34,
             corner_radius=6,
-            font=(ModernStyle.FONT_FAMILY, 13),
+            font=(ModernStyle.FONT_FAMILY, 14),
             fg_color="transparent",
             text_color=ModernStyle.DANGER_COLOR,
             hover_color="#fee2e2",
@@ -942,24 +949,16 @@ class QuickCliApp(ctk.CTk):
         )
         delete_btn.grid(row=0, column=3, padx=(8, 0))
 
-        # 悬停效果
-        def on_enter(e):
-            item_frame.configure(fg_color=ModernStyle.ACCENT_HOVER)
-
-        def on_leave(e):
-            item_frame.configure(fg_color=ModernStyle.ACCENT_COLOR)
-
-        item_frame.bind('<Enter>', on_enter)
-        item_frame.bind('<Leave>', on_leave)
-        inner_frame.bind('<Enter>', on_enter)
-        inner_frame.bind('<Leave>', on_leave)
-        path_label.bind('<Enter>', on_enter)
-        path_label.bind('<Leave>', on_leave)
-
     def _update_path_label(self, label, full_path: str):
         """根据可用宽度优先展示路径右侧内容"""
-        available_width = max(label.winfo_width() - 8, 40)
-        font = tkfont.Font(family=ModernStyle.FONT_FAMILY, size=ModernStyle.FONT_SIZE_NORMAL)
+        width = label.winfo_width()
+        # 宽度太小时（初始化阶段）直接显示完整路径，等下次 Configure 再重算
+        if width < 100:
+            label.configure(text=full_path)
+            return
+
+        available_width = width
+        font = tkfont.Font(family=ModernStyle.FONT_FAMILY, size=14)
         if font.measure(full_path) <= available_width:
             label.configure(text=full_path)
             return
@@ -1016,7 +1015,8 @@ class SettingsWindow(ctk.CTkToplevel):
         self.title("设置")
         self.withdraw()
         self.resizable(True, True)
-        self.minsize(560, 500)
+        self.minsize(560, 540)
+        self.geometry("620x680")
         self.configure(fg_color=ModernStyle.BG_COLOR)
 
         # 设置图标
@@ -1037,6 +1037,55 @@ class SettingsWindow(ctk.CTkToplevel):
         # 主容器
         main_frame = ctk.CTkFrame(self, fg_color="transparent")
         main_frame.pack(fill='both', expand=True, padx=20, pady=20)
+
+        # === 按钮区域（优先 pack 到底部，确保窗口缩小时始终可见） ===
+        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        btn_frame.pack(side='bottom', fill='x', pady=(12, 0))
+
+        # 左侧：检查更新和版本号
+        left_btn_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
+        left_btn_frame.pack(side='left')
+
+        ctk.CTkButton(
+            left_btn_frame, text="检查更新", width=90,
+            corner_radius=8, height=36,
+            fg_color=ModernStyle.GHOST_BTN_BG,
+            border_width=1, border_color=ModernStyle.BORDER_COLOR,
+            text_color=ModernStyle.TEXT_COLOR,
+            hover_color=ModernStyle.ACCENT_HOVER,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
+            command=self.parent._on_check_update_clicked
+        ).pack(side='left')
+
+        ctk.CTkLabel(
+            left_btn_frame, text=f"v{APP_VERSION}",
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
+            text_color=ModernStyle.TEXT_SECONDARY
+        ).pack(side='left', padx=(10, 0))
+
+        # 右侧：保存取消
+        right_btn_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
+        right_btn_frame.pack(side='right')
+
+        ctk.CTkButton(
+            right_btn_frame, text="取消", width=80,
+            corner_radius=8, height=36,
+            fg_color=ModernStyle.GHOST_BTN_BG,
+            border_width=1, border_color=ModernStyle.BORDER_COLOR,
+            text_color=ModernStyle.TEXT_COLOR,
+            hover_color=ModernStyle.ACCENT_HOVER,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
+            command=self.destroy
+        ).pack(side='right')
+
+        ctk.CTkButton(
+            right_btn_frame, text="保存", width=80,
+            corner_radius=8, height=36,
+            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL, "bold"),
+            fg_color=ModernStyle.PRIMARY_COLOR,
+            hover_color=ModernStyle.PRIMARY_HOVER,
+            command=self._save
+        ).pack(side='right', padx=(0, 10))
 
         # === 终端设置 ===
         ctk.CTkLabel(
@@ -1088,7 +1137,7 @@ class SettingsWindow(ctk.CTkToplevel):
         cmd_card = ctk.CTkFrame(main_frame, corner_radius=10,
                                 fg_color=ModernStyle.CARD_BG,
                                 border_width=1, border_color=ModernStyle.BORDER_COLOR)
-        cmd_card.pack(fill='both', expand=True, pady=(0, 12))
+        cmd_card.pack(fill='both', expand=True, pady=(0, 0))
 
         cmd_inner = ctk.CTkFrame(cmd_card, fg_color="transparent")
         cmd_inner.pack(fill='both', expand=True, padx=18, pady=16)
@@ -1137,7 +1186,7 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self.command_listbox = tk.Listbox(
             list_frame,
-            height=8,
+            height=6,
             activestyle='none',
             selectmode='browse',
             font=(ModernStyle.FONT_FAMILY, 13),
@@ -1191,68 +1240,16 @@ class SettingsWindow(ctk.CTkToplevel):
 
         self._refresh_command_listbox()
 
-        # === 按钮区域 ===
-        btn_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        btn_frame.pack(fill='x', pady=(12, 0))
-
-        # 左侧：检查更新和版本号
-        left_btn_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
-        left_btn_frame.pack(side='left')
-
-        ctk.CTkButton(
-            left_btn_frame, text="检查更新", width=90,
-            corner_radius=8, height=36,
-            fg_color=ModernStyle.GHOST_BTN_BG,
-            border_width=1, border_color=ModernStyle.BORDER_COLOR,
-            text_color=ModernStyle.TEXT_COLOR,
-            hover_color=ModernStyle.ACCENT_HOVER,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
-            command=self.parent._on_check_update_clicked
-        ).pack(side='left')
-
-        ctk.CTkLabel(
-            left_btn_frame, text=f"v{APP_VERSION}",
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_SMALL),
-            text_color=ModernStyle.TEXT_SECONDARY
-        ).pack(side='left', padx=(10, 0))
-
-        # 右侧：保存取消
-        right_btn_frame = ctk.CTkFrame(btn_frame, fg_color="transparent")
-        right_btn_frame.pack(side='right')
-
-        ctk.CTkButton(
-            right_btn_frame, text="取消", width=80,
-            corner_radius=8, height=36,
-            fg_color=ModernStyle.GHOST_BTN_BG,
-            border_width=1, border_color=ModernStyle.BORDER_COLOR,
-            text_color=ModernStyle.TEXT_COLOR,
-            hover_color=ModernStyle.ACCENT_HOVER,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
-            command=self.destroy
-        ).pack(side='right')
-
-        ctk.CTkButton(
-            right_btn_frame, text="保存", width=80,
-            corner_radius=8, height=36,
-            font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL, "bold"),
-            fg_color=ModernStyle.PRIMARY_COLOR,
-            hover_color=ModernStyle.PRIMARY_HOVER,
-            command=self._save
-        ).pack(side='right', padx=(0, 10))
-
     def _center_on_parent(self):
-        """相对父窗口居中显示（固定 620×580 + 屏幕边界检查）"""
+        """设置窗口居中屏幕（全程 Tcl 物理像素）"""
         self.update_idletasks()
-        width = 620
-        height = 580
-        x = self.parent.winfo_x() + max((self.parent.winfo_width() - width) // 2, 0)
-        y = self.parent.winfo_y() + max((self.parent.winfo_height() - height) // 2, 0)
-        # 屏幕边界检查
-        screen_w = self.winfo_screenwidth()
-        screen_h = self.winfo_screenheight()
-        x = max(0, min(x, screen_w - width))
-        y = max(0, min(y, screen_h - height))
-        self.geometry(f'{width}x{height}+{x}+{y}')
+        raw_geo = str(self.tk.call('wm', 'geometry', self._w))
+        phys_w, phys_h = [int(v) for v in raw_geo.split('+')[0].split('x')]
+        sw = self.winfo_screenwidth()
+        sh = self.winfo_screenheight()
+        x = max(0, (sw - phys_w) // 2)
+        y = max(0, (sh - phys_h) // 2)
+        self.tk.call('wm', 'geometry', self._w, f'+{x}+{y}')
 
     def _refresh_command_listbox(self, selected_index: Optional[int] = None):
         """刷新命令排序列表"""
@@ -1377,9 +1374,13 @@ class SettingsWindow(ctk.CTkToplevel):
 
 def main():
     """主函数"""
-    app = QuickCliApp()
-    app.mainloop()
-
+    try:
+        app = QuickCliApp()
+        app.mainloop()
+    except Exception:
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()
