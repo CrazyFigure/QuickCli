@@ -4,6 +4,9 @@ import json
 from pathlib import Path
 
 
+from PyInstaller.utils.hooks import collect_data_files
+ctk_datas = collect_data_files('customtkinter')
+
 project_dir = Path(SPECPATH)
 icon_file = project_dir / "icon.ico"
 metadata_file = project_dir / "app_metadata.json"
@@ -61,8 +64,9 @@ a = Analysis(
     datas=[
         (str(icon_file), "."),
         (str(metadata_file), "."),
+        *ctk_datas,
     ],
-    hiddenimports=['PIL', 'pystray._win32'],
+    hiddenimports=['PIL', 'pystray._win32', 'customtkinter'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
