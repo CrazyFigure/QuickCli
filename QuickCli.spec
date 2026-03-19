@@ -4,8 +4,11 @@ import json
 from pathlib import Path
 
 
-from PyInstaller.utils.hooks import collect_data_files
+from PyInstaller.utils.hooks import collect_data_files, collect_submodules, collect_dynamic_libs
 ctk_datas = collect_data_files('customtkinter')
+pil_datas = collect_data_files('PIL')
+pil_submodules = collect_submodules('PIL')
+pil_binaries = collect_dynamic_libs('PIL')
 
 project_dir = Path(SPECPATH)
 icon_file = project_dir / "icon.ico"
@@ -60,13 +63,17 @@ version_file.write_text(
 a = Analysis(
     ["main.py"],
     pathex=[str(project_dir)],
-    binaries=[],
+    binaries=pil_binaries,
     datas=[
         (str(icon_file), "."),
         (str(metadata_file), "."),
         *ctk_datas,
+        *pil_datas,
     ],
-    hiddenimports=['PIL', 'pystray._win32', 'customtkinter'],
+    hiddenimports=[
+        'PIL', 'pystray._win32', 'customtkinter',
+        *pil_submodules,
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
