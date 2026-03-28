@@ -8,6 +8,6 @@
   "preset_commands": [
     "claude",
     "codex",
-    "iflow"
+    "opencode"
   ]
 }

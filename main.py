@@ -49,7 +49,7 @@ def load_app_metadata() -> dict:
         "app_user_model_id": "CrazyFigure.QuickCli",
         "exe_name": "QuickCli.exe",
         "setup_base_name": "QuickCli-Setup",
-        "preset_commands": ["claude", "codex", "iflow"]
+        "preset_commands": ["claude", "codex", "opencode"]
     }
 
     metadata_path = get_bootstrap_dir() / METADATA_FILE
@@ -94,7 +94,7 @@ LR_DEFAULTSIZE = 0x0040
 APP_NAME = APP_METADATA["app_name"]
 APP_VERSION = APP_METADATA["version"]
 APP_ID = APP_METADATA["app_user_model_id"]
-PRESET_COMMANDS = list(APP_METADATA.get("preset_commands", ["claude", "codex", "iflow"]))
+PRESET_COMMANDS = list(APP_METADATA.get("preset_commands", ["claude", "codex", "opencode"]))
 
 # 默认配置
 DEFAULT_CONFIG = {
@@ -400,6 +400,38 @@ class QuickCliApp(ctk.CTk):
                 menu=self._build_tray_menu()
             )
             self.tray_icon.run_detached()
+            # pystray 的 run_detached 会在新线程创建一个隐藏消息窗口，
+            # Windows 默认会为它在任务栏显示按钮，导致出现一个点不了的图标。
+            # 延迟一帧后给该隐藏窗口加上 WS_EX_TOOLWINDOW 样式，使其不在任务栏出现。
+            self.after(300, self._hide_tray_helper_window)
+        except Exception:
+            pass
+
+    def _hide_tray_helper_window(self):
+        """隐藏 pystray 内部消息窗口，防止其在任务栏显示多余的不可操作图标"""
+        try:
+            from ctypes import wintypes, windll, WINFUNCTYPE
+
+            GWL_EXSTYLE = -20
+            WS_EX_TOOLWINDOW = 0x00000080
+            current_pid = windll.kernel32.GetCurrentProcessId()
+
+            @WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            def _enum_callback(hwnd, _):
+                pid = wintypes.DWORD()
+                windll.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+                if pid.value != current_pid:
+                    return True
+                if windll.user32.IsWindowVisible(hwnd):
+                    return True
+                ex_style = windll.user32.GetWindowLongW(hwnd, GWL_EXSTYLE)
+                if not (ex_style & WS_EX_TOOLWINDOW):
+                    windll.user32.SetWindowLongW(
+                        hwnd, GWL_EXSTYLE, ex_style | WS_EX_TOOLWINDOW
+                    )
+                return True
+
+            windll.user32.EnumWindows(_enum_callback, 0)
         except Exception:
             pass
 
