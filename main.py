@@ -579,7 +579,7 @@ class QuickCliApp(ctk.CTk):
         """执行安装包并退出当前程序"""
         win.destroy()
         try:
-            subprocess.Popen([setup_path, "/SILENT", "/SP-", "/SUPPRESSMSGBOXES", "/CLOSEAPPLICATIONS"])
+            subprocess.Popen([setup_path, "/CLOSEAPPLICATIONS"])
             self._quit_app()
         except Exception as e:
             messagebox.showerror("安装失败", f"启动更新程序失败:\n{e}")
