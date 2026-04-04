@@ -30,6 +30,9 @@ from tkinter import filedialog, messagebox
 import customtkinter as ctk
 
 METADATA_FILE = "app_metadata.json"
+COMMAND_RENAMES = {
+    "iflow": "opencode"
+}
 
 
 def get_bootstrap_dir() -> Path:
@@ -49,7 +52,7 @@ def load_app_metadata() -> dict:
         "app_user_model_id": "CrazyFigure.QuickCli",
         "exe_name": "QuickCli.exe",
         "setup_base_name": "QuickCli-Setup",
-        "preset_commands": ["claude", "codex", "iflow"]
+        "preset_commands": ["claude", "codex", "opencode"]
     }
 
     metadata_path = get_bootstrap_dir() / METADATA_FILE
@@ -94,7 +97,7 @@ LR_DEFAULTSIZE = 0x0040
 APP_NAME = APP_METADATA["app_name"]
 APP_VERSION = APP_METADATA["version"]
 APP_ID = APP_METADATA["app_user_model_id"]
-PRESET_COMMANDS = list(APP_METADATA.get("preset_commands", ["claude", "codex", "iflow"]))
+PRESET_COMMANDS = list(APP_METADATA.get("preset_commands", ["claude", "codex", "opencode"]))
 
 # 默认配置
 DEFAULT_CONFIG = {
@@ -152,7 +155,7 @@ def _dedupe_commands(commands) -> List[str]:
     normalized = []
     seen = set()
     for cmd in commands or []:
-        text = str(cmd).strip()
+        text = normalize_command_name(cmd)
         if not text or text in seen:
             continue
         normalized.append(text)
@@ -160,13 +163,22 @@ def _dedupe_commands(commands) -> List[str]:
     return normalized
 
 
+def normalize_command_name(command: str) -> str:
+    """兼容旧命令名并统一为当前命令名"""
+    text = str(command).strip()
+    if not text:
+        return ""
+    return COMMAND_RENAMES.get(text, text)
+
+
 def normalize_config(raw_config: dict) -> dict:
     """兼容旧版配置并规范化命令数据"""
     config = {
         "terminal_path": raw_config.get("terminal_path", DEFAULT_CONFIG["terminal_path"]),
-        "history": raw_config.get("history", DEFAULT_CONFIG["history"]),
         "max_history": raw_config.get("max_history", DEFAULT_CONFIG["max_history"]),
-        "primary_command": raw_config.get("primary_command", DEFAULT_CONFIG["primary_command"])
+        "primary_command": normalize_command_name(
+            raw_config.get("primary_command", DEFAULT_CONFIG["primary_command"])
+        )
     }
 
     legacy_commands = _dedupe_commands(raw_config.get("commands", []))
@@ -192,8 +204,24 @@ def normalize_config(raw_config: dict) -> dict:
         if cmd not in command_order:
             command_order.append(cmd)
 
+    history = []
+    for item in raw_config.get("history", DEFAULT_CONFIG["history"]):
+        if not isinstance(item, dict):
+            continue
+        path = normalize_windows_path(item.get("path", ""))
+        if not path:
+            continue
+        history.append({
+            "path": path,
+            "command": normalize_command_name(item.get("command", config["primary_command"])),
+            "time": item.get("time", "")
+        })
+
     config["custom_commands"] = merged_custom
     config["command_order"] = command_order or PRESET_COMMANDS.copy()
+    if config["primary_command"] not in available_commands:
+        config["primary_command"] = config["command_order"][0]
+    config["history"] = history
     return config
 
 
@@ -1151,7 +1179,7 @@ class SettingsWindow(ctk.CTkToplevel):
 
         ctk.CTkLabel(
             cmd_inner,
-            text="预设命令固定包含 claude / codex / iflow，自定义命令可新增、删除，并支持拖动排序。",
+            text="预设命令固定包含 claude / codex / opencode，自定义命令可新增、删除，并支持拖动排序。",
             font=(ModernStyle.FONT_FAMILY, ModernStyle.FONT_SIZE_NORMAL),
             text_color=ModernStyle.TEXT_COLOR,
             wraplength=650

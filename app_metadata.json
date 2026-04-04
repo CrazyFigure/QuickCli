@@ -1,6 +1,6 @@
 {
   "app_name": "QuickCli",
-  "version": "2.1.0",
+  "version": "2.1.2",
   "publisher": "CrazyFigure",
   "app_user_model_id": "CrazyFigure.QuickCli",
   "exe_name": "QuickCli.exe",
@@ -8,6 +8,6 @@
   "preset_commands": [
     "claude",
     "codex",
-    "iflow"
+    "opencode"
   ]
 }
