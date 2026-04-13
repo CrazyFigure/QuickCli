@@ -24,10 +24,7 @@
 
 ### 开发模式
 
-```powershell
-pip install -r requirements.txt
-python main.py
-```
+开发、打包、发布说明已迁移到 [DEVELOP.md](DEVELOP.md)。
 
 ## 功能
 
@@ -78,57 +75,16 @@ python main.py
 - Python 3.8+（仅开发模式需要）
 - 建议安装 PowerShell 7
 
-## 打包构建
+## 开发者文档
 
-### 本地构建便携版
+如果你要参与 QuickCli 的开发、构建安装包或执行发布流程，请阅读 [DEVELOP.md](DEVELOP.md)。
 
-```powershell
-pip install -r requirements.txt
-pip install pyinstaller
-python -m PyInstaller .\QuickCli.spec --noconfirm --clean
-```
+其中包含：
 
-输出：`dist\QuickCli.exe`
-
-### 本地构建安装版
-
-需先安装 [Inno Setup 6](https://jrsoftware.org/isinfo.php)：
-
-```powershell
-.\build.ps1 -Installer
-```
-
-输出：`output\QuickCli-Setup.exe`
-
-### GitHub Actions 自动构建
-
-推送 `v*` tag 后自动触发 `.github/workflows/windows-build.yml`，生成 Release 产物：
-
-- `QuickCli-portable-exe`
-- `QuickCli-setup-exe`
-
-## 项目结构
-
-```text
-QuickCli/
-├─ .github/
-│  └─ workflows/
-│     └─ windows-build.yml
-├─ installer/
-│  └─ QuickCli.iss
-├─ QuickCli.spec
-├─ build.ps1
-├─ main.py
-├─ requirements.txt
-├─ app_metadata.json
-├─ icon.ico
-├─ logo.png
-└─ README.md
-```
-
-## 应用元数据
-
-版本、发布者、`AppUserModelID` 等构建元数据统一维护在 `app_metadata.json`，升级版本只需修改此文件。
+- 本地开发环境与运行方式
+- 便携版 / 安装版构建方法
+- 项目结构与关键文件说明
+- 版本号、tag 与发布流程
 
 ## 许可
 

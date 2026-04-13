@@ -355,6 +355,7 @@ class QuickCliApp(ctk.CTk):
         self.config = load_config()
         self.primary_command = self.config.get("primary_command", "codex")
         self.tray_icon = None
+        self.is_quitting = False
 
         self.title(APP_NAME)
         self.geometry("680x780")
@@ -405,6 +406,10 @@ class QuickCliApp(ctk.CTk):
         """隐藏主窗口"""
         self.withdraw()
 
+    def _run_on_ui_thread(self, callback, *args, **kwargs):
+        """将托盘线程中的操作切回 Tk 主线程执行"""
+        self.after(0, lambda: callback(*args, **kwargs))
+
     def _show_window(self):
         """显示主窗口（平滑呼出）"""
         self.wm_attributes("-alpha", 0)
@@ -436,14 +441,14 @@ class QuickCliApp(ctk.CTk):
         menu_items = []
 
         # 1. 打开主界面（pystray 回调在非主线程，必须转回主线程）
-        menu_items.append(MenuItem("打开主界面", lambda: self.after(0, self._show_window), default=True))
+        menu_items.append(MenuItem("打开主界面", lambda: self._run_on_ui_thread(self._show_window), default=True))
         menu_items.append(Menu.SEPARATOR)
 
         # 2. 选择主命令区域 - 使用原生勾选标记
         available_commands = get_available_commands(self.config)
         for cmd in available_commands:
             def make_cmd_handler(c):
-                return lambda: self._set_primary_command(c)
+                return lambda: self._run_on_ui_thread(self._set_primary_command, c)
 
             # 使用 pystray 原生 checked + radio 参数
             menu_items.append(MenuItem(
@@ -475,17 +480,17 @@ class QuickCliApp(ctk.CTk):
                 display_name = f".../{folder_name}"
 
                 def make_history_handler(p):
-                    return lambda: self._open_terminal(p, self.primary_command)
+                    return lambda: self._run_on_ui_thread(self._open_terminal, p, self.primary_command)
 
                 menu_items.append(MenuItem(display_name, make_history_handler(path)))
 
         menu_items.append(Menu.SEPARATOR)
 
         # 4. 检查更新
-        menu_items.append(MenuItem("检查更新", self._on_check_update_clicked))
+        menu_items.append(MenuItem("检查更新", lambda: self._run_on_ui_thread(self._on_check_update_clicked)))
 
         # 5. 退出
-        menu_items.append(MenuItem("退出", self._quit_app))
+        menu_items.append(MenuItem("退出", lambda: self._run_on_ui_thread(self._quit_app)))
 
         return Menu(*menu_items)
 
@@ -599,11 +604,33 @@ class QuickCliApp(ctk.CTk):
 
     def _quit_app(self):
         """完全退出应用"""
-        if self.tray_icon:
-            self.tray_icon.stop()
+        if self.is_quitting:
+            return
+
+        self.is_quitting = True
+        tray_icon = self.tray_icon
+        self.tray_icon = None
+
+        if tray_icon:
+            try:
+                tray_icon.visible = False
+            except Exception:
+                pass
+
+            try:
+                tray_icon.stop()
+            except Exception:
+                pass
+
+            tray_thread = getattr(tray_icon, "_thread", None)
+            if tray_thread and tray_thread.is_alive() and tray_thread is not threading.current_thread():
+                tray_thread.join(timeout=1.0)
+
         self.quit()
-        self.destroy()
-        sys.exit(0)
+        try:
+            self.destroy()
+        except tk.TclError:
+            pass
 
     def _create_ui(self):
         """创建用户界面"""
