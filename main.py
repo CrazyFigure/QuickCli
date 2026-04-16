@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import traceback
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -41,6 +42,100 @@ def get_bootstrap_dir() -> Path:
     if meipass:
         return Path(meipass)
     return Path(__file__).parent.resolve()
+
+
+def _normalize_runtime_path(path: str) -> str:
+    """标准化路径，便于比较是否指向 PyInstaller 的临时目录"""
+    if not path:
+        return ""
+    return os.path.normcase(os.path.normpath(path.strip().strip('"')))
+
+
+def _is_runtime_path(path: str, runtime_dir: str) -> bool:
+    """判断路径是否位于当前 PyInstaller 运行时目录中"""
+    normalized_path = _normalize_runtime_path(path)
+    if not normalized_path or not runtime_dir:
+        return False
+    return normalized_path == runtime_dir or normalized_path.startswith(runtime_dir + os.sep)
+
+
+def _build_external_process_env() -> dict:
+    """构建启动外部进程时使用的环境变量，避免继承 _MEIPASS 路径"""
+    env = os.environ.copy()
+    runtime_dir = _normalize_runtime_path(getattr(sys, "_MEIPASS", ""))
+
+    for key in ["TCL_LIBRARY", "TK_LIBRARY"]:
+        value = env.get(key, "")
+        if _is_runtime_path(value, runtime_dir) or "_MEI" in value:
+            env.pop(key, None)
+
+    path_value = env.get("PATH", "")
+    if runtime_dir and path_value:
+        env["PATH"] = os.pathsep.join(
+            entry for entry in path_value.split(os.pathsep)
+            if not _is_runtime_path(entry, runtime_dir)
+        )
+
+    return env
+
+
+def _get_current_dll_directory() -> Optional[str]:
+    """读取当前进程的 DLL 搜索目录"""
+    if os.name != "nt":
+        return None
+
+    try:
+        buffer = ctypes.create_unicode_buffer(32767)
+        length = ctypes.windll.kernel32.GetDllDirectoryW(len(buffer), buffer)
+    except Exception:
+        return None
+
+    if length <= 0:
+        return ""
+    return buffer.value
+
+
+@contextmanager
+def _sanitized_external_process_runtime():
+    """
+    临时恢复默认 DLL 搜索路径，避免外部进程继承 PyInstaller 的 _MEIPASS 目录。
+    这能减少退出时 `_MEI...` 临时目录无法删除的概率。
+    """
+    env = _build_external_process_env()
+
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        yield env
+        return
+
+    try:
+        set_dll_directory = ctypes.windll.kernel32.SetDllDirectoryW
+    except Exception:
+        yield env
+        return
+
+    previous_dll_directory = _get_current_dll_directory()
+    set_dll_directory(None)
+    try:
+        yield env
+    finally:
+        if previous_dll_directory:
+            set_dll_directory(previous_dll_directory)
+        else:
+            set_dll_directory(None)
+
+
+def launch_external_process(command: List[str], cwd: Optional[str] = None, creationflags: int = 0):
+    """启动外部进程，并隔离当前 PyInstaller 运行时对其的影响"""
+    popen_kwargs = {
+        "close_fds": True,
+        "cwd": cwd,
+    }
+    if creationflags:
+        popen_kwargs["creationflags"] = creationflags
+
+    with _sanitized_external_process_runtime() as env:
+        popen_kwargs["env"] = env
+        return subprocess.Popen(command, **popen_kwargs)
 
 
 def load_app_metadata() -> dict:
@@ -425,10 +520,11 @@ class QuickCliApp(ctk.CTk):
             return
 
         try:
-            image = Image.open(str(ICON_FILE))
+            with Image.open(str(ICON_FILE)) as image:
+                tray_image = image.copy()
             self.tray_icon = Icon(
                 APP_NAME,
-                image,
+                tray_image,
                 APP_NAME,
                 menu=self._build_tray_menu()
             )
@@ -584,7 +680,7 @@ class QuickCliApp(ctk.CTk):
         """执行安装包并退出当前程序"""
         win.destroy()
         try:
-            subprocess.Popen([setup_path, "/CLOSEAPPLICATIONS"])
+            launch_external_process([setup_path, "/CLOSEAPPLICATIONS"])
             self._quit_app()
         except Exception as e:
             messagebox.showerror("安装失败", f"启动更新程序失败:\n{e}")
@@ -841,18 +937,10 @@ class QuickCliApp(ctk.CTk):
             return
 
         try:
-            # 从传递给终端的环境变量中剥离当前 PyInstaller 的 TCL/TK 库变量
-            # 防止打开终端后，终端里执行的其他含界面的 Python 工具发生崩溃
-            sub_env = os.environ.copy()
-            for key in ["TCL_LIBRARY", "TK_LIBRARY"]:
-                if "_MEI" in sub_env.get(key, ""):
-                    sub_env.pop(key, None)
-
             # 启动终端
-            subprocess.Popen(
+            launch_external_process(
                 [terminal_path, "-NoExit", "-Command", f"cd '{directory}'; {cmd}"],
                 cwd=directory,
-                env=sub_env,
                 creationflags=subprocess.CREATE_NEW_CONSOLE
             )
 
