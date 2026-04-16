@@ -47,7 +47,7 @@ QuickCli/
 
 ```json
 {
-  "version": "2.1.4"
+  "version": "2.1.5"
 }
 ```
 
@@ -81,11 +81,11 @@ python -m PyInstaller .\QuickCli.spec --noconfirm --clean
 
 建议流程：
 
-1. 从 `main` 切出版本分支，例如 `v2.1.4`
+1. 从 `main` 切出版本分支，例如 `v2.1.5`
 2. 修改 `app_metadata.json` 中的版本号
 3. 完成本地验证和打包检查
 4. 提交版本分支
-5. 创建同名 tag，例如 `v2.1.4`
+5. 创建同名 tag，例如 `v2.1.5`
 6. 推送分支和 tag，触发 GitHub Actions Release 构建
 
 GitHub Actions 会在推送 `v*` tag 后生成 Release 构建产物。
